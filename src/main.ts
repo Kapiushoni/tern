@@ -1,10 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import "./styles.css";
 import { FileTree } from "./tree";
-import { setLayoutPaused, TermKind } from "./terminal";
+import { setTerminalTheme, TermKind, ThemeName } from "./terminal";
 import { Tabs, SavedTab } from "./tabs";
 import { Attachments } from "./attach";
+import { Editor } from "./editor";
 
 const app = document.getElementById("app")!;
 const termHost = document.getElementById("terminal-host")!;
@@ -15,14 +18,23 @@ const btnOpen = document.getElementById("btn-open")!;
 const btnNew = document.getElementById("btn-new")!;
 const newMenu = document.getElementById("new-menu")!;
 const splitter = document.getElementById("splitter")!;
+const editorSplit = document.getElementById("editor-split")!;
+const center = document.getElementById("center")!;
+const btnTheme = document.getElementById("btn-theme")!;
 
 const tree = new FileTree(document.getElementById("tree")!);
 const tabs = new Tabs(document.getElementById("tabs")!, panes);
 const attachments = new Attachments(termHost, panes, tabs);
+const editor = new Editor(document.getElementById("editor")!);
 tree.onDragOut = (path, target) => {
   if (target?.closest("#terminal-host")) tabs.attach([path]);
+  else if (target?.closest("#editor")) editor.open(path);
 };
+tree.onOpen = (path) => editor.open(path);
+tree.onAskClaude = (path) => tabs.askClaude(path);
+attachments.onOpenFile = (path) => editor.open(path);
 let home = "";
+let theme: ThemeName = "dark";
 
 interface Saved {
   version: 1;
@@ -30,10 +42,14 @@ interface Saved {
   active: number;
   sidebarW?: number;
   sidebarHidden?: boolean;
+  /** The file open in the editor panel, and the panel's share of the height in %. */
+  editorFile?: string;
+  editorH?: number;
+  theme?: ThemeName;
 }
 
 function baseName(p: string) {
-  return p.replace(/[\/]+$/, "").split(/[\/]/).pop() || p;
+  return p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || p;
 }
 
 // ── session save (debounced) ─────────────────────────────
@@ -41,17 +57,57 @@ let saveTimer = 0;
 function save() {
   clearTimeout(saveTimer);
   saveTimer = window.setTimeout(() => {
-    const w = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--sidebar-w"));
+    const css = getComputedStyle(document.documentElement);
+    const w = parseInt(css.getPropertyValue("--sidebar-w"));
+    const eh = parseFloat(css.getPropertyValue("--editor-h"));
     const data: Saved = {
       version: 1,
       ...tabs.saved(),
       sidebarW: Number.isFinite(w) ? w : undefined,
       sidebarHidden: app.classList.contains("no-sidebar"),
+      editorFile: editor.path ?? undefined,
+      editorH: Number.isFinite(eh) ? eh : undefined,
+      theme,
     };
     invoke("session_save", { json: JSON.stringify(data) }).catch(() => {});
   }, 300);
 }
 tabs.onChange = save;
+
+// ── watching the disk: tree, git colours and the open file follow outside edits ──
+let watchKey = "";
+function updateWatch() {
+  const roots = tree.root ? [tree.root] : [];
+  const files = editor.path ? [editor.path] : [];
+  const key = JSON.stringify([roots, files]);
+  if (key === watchKey) return;
+  watchKey = key;
+  invoke("watch_set", { roots, files }).catch(() => {});
+}
+tree.onRoot = () => queueMicrotask(updateWatch);
+editor.onChange = () => {
+  save();
+  updateWatch();
+};
+listen<{ paths: string[]; git: boolean }>("fs-change", (e) => {
+  tree.onDiskChange(e.payload.paths, e.payload.git);
+  editor.onDiskChange(e.payload.paths);
+});
+
+// ── theme ────────────────────────────────────────────────
+function applyTheme(name: ThemeName) {
+  theme = name;
+  if (name === "light") document.documentElement.dataset.theme = "light";
+  else delete document.documentElement.dataset.theme;
+  setTerminalTheme(name);
+  // The Windows title bar follows too.
+  getCurrentWindow().setTheme(name).catch(() => {});
+  btnTheme.title = name === "light" ? "Dark theme" : "Light theme";
+}
+btnTheme.addEventListener("click", () => {
+  applyTheme(theme === "light" ? "dark" : "light");
+  save();
+});
 
 // ── tree follows the active tab ──────────────────────────
 function showEmpty(on: boolean) {
@@ -112,31 +168,74 @@ document.addEventListener("click", (e) => {
   if (!newMenu.hidden && !newMenu.contains(e.target as Node)) toggleMenu(false);
 });
 
-// ── splitter ─────────────────────────────────────────────
-splitter.addEventListener("pointerdown", (e) => {
-  splitter.setPointerCapture(e.pointerId);
-  // Freeze the terminal while dragging and refit once on release, so it does not
-  // re-render on every pixel and flicker.
-  setLayoutPaused(true);
-  let frame = 0;
-  const move = (ev: PointerEvent) => {
-    cancelAnimationFrame(frame);
-    frame = requestAnimationFrame(() => {
-      const w = Math.min(Math.max(ev.clientX, 160), window.innerWidth * 0.5);
-      document.documentElement.style.setProperty("--sidebar-w", `${w}px`);
-    });
-  };
-  const up = () => {
-    splitter.removeEventListener("pointermove", move);
-    splitter.removeEventListener("pointerup", up);
-    splitter.removeEventListener("pointercancel", up);
-    setLayoutPaused(false);
-    save();
-  };
-  splitter.addEventListener("pointermove", move);
-  splitter.addEventListener("pointerup", up);
-  splitter.addEventListener("pointercancel", up);
-});
+// ── splitters ────────────────────────────────────────────
+/**
+ * Dragging a splitter shows only a thin line where it will land; the layout changes once, on
+ * release. Resizing live made the terminal's WebGL canvas blink on every frame.
+ */
+function dragSplitter(
+  el: HTMLElement,
+  axis: "x" | "y",
+  clamp: (pos: number) => number,
+  apply: (pos: number) => void,
+) {
+  el.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    el.setPointerCapture(e.pointerId);
+    const line = document.createElement("div");
+    line.className = `split-line ${axis}`;
+    document.body.append(line);
+    document.body.classList.add(axis === "x" ? "resizing-x" : "resizing-y");
+    let pos = clamp(axis === "x" ? e.clientX : e.clientY);
+    const show = () => (line.style.transform = axis === "x" ? `translateX(${pos}px)` : `translateY(${pos}px)`);
+    const r = center.getBoundingClientRect();
+    if (axis === "y") {
+      line.style.left = `${r.left}px`;
+      line.style.width = `${r.width}px`;
+    }
+    show();
+    const move = (ev: PointerEvent) => {
+      pos = clamp(axis === "x" ? ev.clientX : ev.clientY);
+      show();
+    };
+    const up = (ev: PointerEvent) => {
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", up);
+      el.removeEventListener("pointercancel", up);
+      line.remove();
+      document.body.classList.remove("resizing-x", "resizing-y");
+      if (ev.type === "pointerup") {
+        apply(pos);
+        save();
+      }
+    };
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", up);
+  });
+}
+
+dragSplitter(
+  splitter,
+  "x",
+  (x) => Math.min(Math.max(x, 160), window.innerWidth * 0.5),
+  (x) => document.documentElement.style.setProperty("--sidebar-w", `${x}px`),
+);
+
+dragSplitter(
+  editorSplit,
+  "y",
+  (y) => {
+    const r = center.getBoundingClientRect();
+    return Math.min(Math.max(y, r.top + r.height * 0.15), r.top + r.height * 0.85);
+  },
+  (y) => {
+    // Kept as a percentage of the column, so it fits any window size.
+    const r = center.getBoundingClientRect();
+    document.documentElement.style.setProperty("--editor-h", `${(((y - r.top) / r.height) * 100).toFixed(1)}%`);
+  },
+);
 
 // ── hotkeys (physical key codes: work in any keyboard layout) ─
 window.addEventListener(
@@ -153,7 +252,11 @@ window.addEventListener(
     } else if (!shift && e.code === "Backquote") newTab("claude");
     else if (shift && e.code === "KeyT") newTab("shell");
     else if (shift && e.code === "KeyA") attachments.pick();
-    else if (!shift && e.code === "KeyW") tabs.close();
+    else if (!shift && e.code === "KeyW") {
+      // In the editor, Ctrl+W closes the file rather than the terminal tab.
+      if (editor.isOpen && document.activeElement?.closest("#editor")) editor.close();
+      else tabs.close();
+    }
     else if (e.code === "Tab") tabs.cycle(shift ? -1 : 1);
     else if (!shift && /^Digit[1-9]$/.test(e.code)) tabs.pick(Number(e.code.slice(5)));
     else handled = false;
@@ -182,6 +285,9 @@ window.addEventListener(
   }
   if (saved?.sidebarW) document.documentElement.style.setProperty("--sidebar-w", `${saved.sidebarW}px`);
   if (saved?.sidebarHidden) app.classList.add("no-sidebar");
+  if (saved?.editorH) document.documentElement.style.setProperty("--editor-h", `${saved.editorH}%`);
+  // Before any terminal is created, so they all start in the right colours.
+  applyTheme(saved?.theme === "light" ? "light" : "dark");
 
   const restore = saved?.tabs ?? [];
   const activeIdx = Math.min(Math.max(saved?.active ?? 0, 0), restore.length - 1);
@@ -203,4 +309,5 @@ window.addEventListener(
   // A folder passed on the command line opens its own Claude tab (unless one is already there).
   if (dirs.cli && !restore.some((t) => t.cwd === dirs.cli)) await tabs.open("claude", dirs.cli);
   if (tabs.count === 0) await tabs.open("claude", dirs.cli ?? home);
+  if (saved?.editorFile) await editor.open(saved.editorFile, { focus: false });
 })();

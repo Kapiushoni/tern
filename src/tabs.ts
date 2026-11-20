@@ -238,6 +238,25 @@ export class Tabs {
     }
   }
 
+  /**
+   * "Ask Claude about this file": puts the path into a Claude tab's input. Uses the active tab if
+   * it is a Claude tab, else a Claude tab whose folder holds the file, else any Claude tab.
+   */
+  async askClaude(path: string) {
+    const inside = (t: Tab) => path.toLowerCase().startsWith(t.cwd.toLowerCase());
+    let tab = this.active?.kind === "claude" ? this.active : undefined;
+    tab ??= this.tabs.find((t) => t.kind === "claude" && inside(t)) ?? this.tabs.find((t) => t.kind === "claude");
+    if (!tab) {
+      const dir = path.replace(/[\\/][^\\/]+$/, "");
+      await this.open("claude", this.active?.cwd ?? dir);
+      // Give Claude Code a moment to draw its input before typing into it.
+      await sleep(1500);
+    } else {
+      this.activate(tab);
+    }
+    await this.attach([path]);
+  }
+
   pasteText(text: string) {
     this.active?.term.paste(text);
   }

@@ -103,6 +103,8 @@ export class Attachments {
   private hit: Hit | null = null;
   private hoverFrame = 0;
   private info = new Map<string, { at: number; value: Promise<FileInfo | null> }>();
+  /** Ctrl+click on a file path in the terminal opens it in the editor. */
+  onOpenFile: (path: string) => void = () => {};
 
   constructor(
     termHost: HTMLElement,
@@ -310,6 +312,7 @@ export class Attachments {
     );
     div("card-path", hit.path);
     if (isImage(hit.path)) div("card-tip", "click to open");
+    else if (!info.is_dir) div("card-tip", "Ctrl+click to open in the editor");
     this.card.replaceChildren(...parts);
     this.card.hidden = false;
 
@@ -327,11 +330,15 @@ export class Attachments {
   private onMouseDown(e: MouseEvent) {
     if (e.button !== 0) return;
     const hit = this.hitAt(e.clientX, e.clientY);
-    if (!hit || !isImage(hit.path)) return;
+    if (!hit) return;
+    // Images open on a plain click; other files on Ctrl+click, so clicking text still works.
+    const image = isImage(hit.path);
+    if (!image && !(e.ctrlKey || e.metaKey)) return;
     e.preventDefault();
     e.stopPropagation();
     this.setHit(null);
-    this.show(hit.path);
+    if (image) this.show(hit.path);
+    else this.onOpenFile(hit.path);
   }
 
   // ── full-size viewer ──────────────────────────────────
