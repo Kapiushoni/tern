@@ -19,7 +19,9 @@ const theme = {
   blue: "#6ab0ff", brightBlue: "#9bcaff",
   magenta: "#ff2e88", brightMagenta: "#ff6fae",
   cyan: "#4fe3e8", brightCyan: "#86eef1",
-  white: "#d9d4de", brightWhite: "#ffffff",
+  // ANSI "white" is the secondary-text gray (hints, suggestions in Claude Code's ANSI theme);
+  // bright white is the real white.
+  white: "#9a93a3", brightWhite: "#ffffff",
 };
 
 let layoutPaused = false;
@@ -49,6 +51,9 @@ export class TermSession {
   /** Called for every chunk the user types (after it is sent to the process). */
   onInput: (data: string) => void = () => {};
 
+  /** Sees every key event first; returning false stops xterm from handling it. */
+  onKey: (e: KeyboardEvent) => boolean = () => true;
+
   constructor(
     private host: HTMLElement,
     onExit: () => void,
@@ -66,13 +71,10 @@ export class TermSession {
     this.term.loadAddon(this.fit);
 
     this.term.onData((data) => {
-      if (this.id === null) {
-        this.pending.push(data);
-        return;
-      }
-      invoke("pty_write", { id: this.id, data });
-      this.onInput(data);
+      this.send(data);
+      if (this.id !== null) this.onInput(data);
     });
+    this.term.attachCustomKeyEventHandler((e) => this.onKey(e));
 
     this.observer = new ResizeObserver(() => {
       if (layoutPaused) return;
@@ -147,6 +149,17 @@ export class TermSession {
     if (this.id !== null && before !== `${this.term.cols}x${this.term.rows}`) {
       invoke("pty_resize", { id: this.id, cols: this.term.cols, rows: this.term.rows });
     }
+  }
+
+  /** Writes straight to the process (queued until it has started). */
+  send(data: string) {
+    if (this.id === null) this.pending.push(data);
+    else invoke("pty_write", { id: this.id, data });
+  }
+
+  /** Pastes text as if from the clipboard (bracketed when the program asked for it). */
+  paste(text: string) {
+    this.term.paste(text);
   }
 
   focus() {

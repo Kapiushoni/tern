@@ -4,9 +4,11 @@ import "./styles.css";
 import { FileTree } from "./tree";
 import { setLayoutPaused, TermKind } from "./terminal";
 import { Tabs, SavedTab } from "./tabs";
+import { Attachments } from "./attach";
 
 const app = document.getElementById("app")!;
 const termHost = document.getElementById("terminal-host")!;
+const panes = document.getElementById("panes")!;
 const rootName = document.getElementById("root-name")!;
 const btnHidden = document.getElementById("btn-hidden")!;
 const btnOpen = document.getElementById("btn-open")!;
@@ -15,7 +17,11 @@ const newMenu = document.getElementById("new-menu")!;
 const splitter = document.getElementById("splitter")!;
 
 const tree = new FileTree(document.getElementById("tree")!);
-const tabs = new Tabs(document.getElementById("tabs")!, termHost);
+const tabs = new Tabs(document.getElementById("tabs")!, panes);
+const attachments = new Attachments(termHost, panes, tabs);
+tree.onDragOut = (path, target) => {
+  if (target?.closest("#terminal-host")) tabs.attach([path]);
+};
 let home = "";
 
 interface Saved {
@@ -49,14 +55,14 @@ tabs.onChange = save;
 
 // ── tree follows the active tab ──────────────────────────
 function showEmpty(on: boolean) {
-  termHost.querySelector(".notice")?.remove();
+  panes.querySelector(".notice")?.remove();
   if (!on) return;
   const n = document.createElement("div");
   n.className = "notice";
   n.innerHTML =
     `<div><b>No tabs open</b></div>` +
     `<div><kbd>Ctrl+\`</kbd> Claude &nbsp; <kbd>Ctrl+Shift+T</kbd> shell</div>`;
-  termHost.append(n);
+  panes.append(n);
 }
 
 tabs.onActivate = (cwd) => {
@@ -146,6 +152,7 @@ window.addEventListener(
       save();
     } else if (!shift && e.code === "Backquote") newTab("claude");
     else if (shift && e.code === "KeyT") newTab("shell");
+    else if (shift && e.code === "KeyA") attachments.pick();
     else if (!shift && e.code === "KeyW") tabs.close();
     else if (e.code === "Tab") tabs.cycle(shift ? -1 : 1);
     else if (!shift && /^Digit[1-9]$/.test(e.code)) tabs.pick(Number(e.code.slice(5)));
@@ -189,7 +196,7 @@ window.addEventListener(
   restore.forEach((t, i) => {
     let resume: string | undefined;
     if (t.kind === "claude") resume = alive[i] ? t.sessionId : t.continue ? "continue" : undefined;
-    opening.push(tabs.open(t.kind, t.cwd, { resume, focus: i === activeIdx }));
+    opening.push(tabs.open(t.kind, t.cwd, { resume, focus: i === activeIdx, images: t.images }));
   });
   await Promise.all(opening);
 

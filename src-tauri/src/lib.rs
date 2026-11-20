@@ -1,3 +1,4 @@
+mod attach;
 mod fs;
 mod hooks;
 mod pty;
@@ -10,11 +11,15 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(pty::PtyState::default())
         .setup(|app| {
+            attach::cleanup_old_pastes();
             let state = hooks::start(app.handle());
             app.manage(state);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            attach::clipboard_files,
+            attach::save_paste,
+            attach::file_info,
             fs::list_dir,
             fs::initial_dir,
             pty::pty_spawn,

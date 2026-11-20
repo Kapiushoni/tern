@@ -1,6 +1,9 @@
 import { listen } from "@tauri-apps/api/event";
 import { TermSession, TermKind } from "./terminal";
 import { chime } from "./sound";
+import { isImage, quotePath, imageTagsInInput } from "./attach";
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** idle: nothing asked yet · working: Claude is busy · done: finished, waiting for you. */
 type Activity = "idle" | "working" | "done";
@@ -12,6 +15,8 @@ export interface SavedTab {
   sessionId?: string;
   /** Had prompts but no known session id (hooks unavailable): resume with --continue. */
   continue?: boolean;
+  /** Which file each "[Image #N]" tag in this Claude session stands for. */
+  images?: Record<number, string>;
 }
 
 interface Tab extends SavedTab {
@@ -20,6 +25,7 @@ interface Tab extends SavedTab {
   used: boolean;
   /** Claude asked for permission mid-task; the next keystroke means it is working again. */
   awaitingAnswer: boolean;
+  images: Record<number, string>;
   el: HTMLElement;
   pane: HTMLElement;
   term: TermSession;
@@ -39,6 +45,8 @@ export class Tabs {
   /** Fired when the active tab changes (or the last one closes) and when tabs change at all. */
   onActivate: (cwd: string | null) => void = () => {};
   onChange: () => void = () => {};
+  /** Fired when the active tab changes or its terminal is replaced. */
+  onTerm: () => void = () => {};
 
   constructor(
     private strip: HTMLElement,
@@ -72,13 +80,14 @@ export class Tabs {
         cwd: t.cwd,
         sessionId: t.kind === "claude" && t.used ? t.sessionId : undefined,
         continue: t.kind === "claude" && t.used && !t.sessionId ? true : undefined,
+        images: t.kind === "claude" && Object.keys(t.images).length ? t.images : undefined,
       })),
       active: this.active ? this.tabs.indexOf(this.active) : 0,
     };
   }
 
   /** Opens a tab. `resume` is a session id or "continue". */
-  async open(kind: TermKind, cwd: string, opts: { resume?: string; focus?: boolean } = {}) {
+  async open(kind: TermKind, cwd: string, opts: { resume?: string; focus?: boolean; images?: Record<number, string> } = {}) {
     const key = newKey();
     const el = document.createElement("div");
     el.className = `tab ${kind}`;
@@ -102,6 +111,8 @@ export class Tabs {
       used: !!opts.resume,
       activity: "idle",
       awaitingAnswer: false,
+      // Tag numbers belong to one Claude conversation: only keep them when resuming it.
+      images: opts.resume ? { ...opts.images } : {},
       term: null!,
     };
     this.tabs.push(tab);
@@ -119,6 +130,7 @@ export class Tabs {
       restarted = true;
       tab.sessionId = undefined;
       tab.used = false;
+      tab.images = {};
       term.dispose();
       this.spawn(tab);
       this.onChange();
@@ -145,13 +157,20 @@ export class Tabs {
         }
       };
     }
+    term.onKey = (e) => {
+      // Ctrl+V: let the browser fire a paste event (handled in attach.ts) instead of sending ^V.
+      return !(e.type === "keydown" && e.code === "KeyV" && e.ctrlKey && !e.altKey && !e.metaKey);
+    };
     term.onInput = () => {
       if (tab.awaitingAnswer) {
         tab.awaitingAnswer = false;
         this.setActivity(tab, "working");
       }
     };
-    if (this.active === tab) term.focus();
+    if (this.active === tab) {
+      term.focus();
+      this.onTerm();
+    }
     try {
       await term.start(tab.kind, tab.cwd, tab.key, resume);
     } catch (err) {
@@ -171,6 +190,58 @@ export class Tabs {
     }
   }
 
+  /** The active tab's xterm, if any. */
+  get activeTerm() {
+    return this.active?.term?.term ?? null;
+  }
+
+  get activeKind() {
+    return this.active?.kind ?? null;
+  }
+
+  /** The file behind "[Image #N]" in the active tab, if Tern pasted it. */
+  imagePath(n: number): string | undefined {
+    return this.active?.images[n];
+  }
+
+  /**
+   * Types the paths into the active tab's input, one paste per file. Claude Code turns an image
+   * path into an "[Image #N]" tag; Tern notes which file got which number, for the hover preview.
+   */
+  async attach(paths: string[]) {
+    const tab = this.active;
+    if (!tab) return;
+    tab.term.focus();
+    if (tab.kind === "shell") {
+      if (paths.length) tab.term.paste(paths.map(quotePath).join(" ") + " ");
+      return;
+    }
+    for (const p of paths) {
+      const term = tab.term;
+      const before = new Set(imageTagsInInput(term.term));
+      term.paste(quotePath(p) + " ");
+      if (!isImage(p)) {
+        await sleep(80);
+        continue;
+      }
+      // Wait for Claude Code to show the new tag, so the next paste is not merged with this one.
+      for (let waited = 0; waited < 2000; waited += 100) {
+        await sleep(100);
+        if (tab.term !== term) return;
+        const fresh = imageTagsInInput(term.term).find((n) => !before.has(n));
+        if (fresh !== undefined) {
+          tab.images[fresh] = p;
+          this.onChange();
+          break;
+        }
+      }
+    }
+  }
+
+  pasteText(text: string) {
+    this.active?.term.paste(text);
+  }
+
   activate(tab: Tab) {
     if (this.active === tab) return tab.term?.focus();
     if (this.active) {
@@ -187,6 +258,7 @@ export class Tabs {
       tab.term?.focus();
     });
     this.onActivate(tab.cwd);
+    this.onTerm();
     this.onChange();
   }
 
@@ -201,7 +273,10 @@ export class Tabs {
       this.active = null;
       const next = this.tabs[Math.min(i, this.tabs.length - 1)];
       if (next) this.activate(next);
-      else this.onActivate(null);
+      else {
+        this.onActivate(null);
+        this.onTerm();
+      }
     }
     this.onChange();
   }

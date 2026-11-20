@@ -92,6 +92,11 @@ pub fn pty_spawn(
     for var in PARENT_SESSION_VARS {
         cmd.env_remove(var);
     }
+    // Tern is a colour terminal. Tools that start it (npm and the Tauri dev runner, among others)
+    // may set these for their own output; inherited, they turn colour off in every tab.
+    for var in ["NO_COLOR", "FORCE_COLOR"] {
+        cmd.env_remove(var);
+    }
     if kind == "claude" {
         if let Some(file) = &hooks.settings_file {
             cmd.arg("--settings");
