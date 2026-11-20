@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tern</title>
+  </head>
+  <body>
+    <div id="app">
+      <header id="tabbar">
+        <div id="tabs"></div>
+        <button id="btn-new" class="icon-btn" title="New tab" aria-haspopup="menu">
+          <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+        <div id="new-menu" role="menu" hidden>
+          <button role="menuitem" data-kind="claude"><span>Claude</span><kbd>Ctrl+`</kbd></button>
+          <button role="menuitem" data-kind="shell"><span>Shell</span><kbd>Ctrl+Shift+T</kbd></button>
+        </div>
+      </header>
+      <aside id="sidebar">
+        <div id="tree-head">
+          <span id="root-name" title=""></span>
+          <button id="btn-hidden" class="icon-btn" title="Show hidden files" aria-pressed="false">
+            <svg class="i-eye-off" viewBox="0 0 24 24"><path d="M10.7 5.1A10.4 10.4 0 0 1 12 5c6.5 0 10 7 10 7a17.6 17.6 0 0 1-2.2 3.2M6.6 6.6C3.6 8.6 2 12 2 12s3.5 7 10 7a9.7 9.7 0 0 0 5.4-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><path d="M2 2l20 20"/></svg>
+            <svg class="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+          <button id="btn-open" class="icon-btn" title="Open another folder">
+            <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+          </button>
+        </div>
+        <div id="tree" role="tree"></div>
+      </aside>
+      <div id="splitter"></div>
+      <main id="terminal-host"></main>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
