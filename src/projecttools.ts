@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Tabs } from "./tabs";
 import { toast } from "./toast";
+import { t } from "./i18n";
 
 /**
  * The ▶ run button and "Open in IDE", both for the project shown in the tree.
@@ -74,7 +75,7 @@ export class ProjectTools {
       // A folder of projects: offer the ones inside it that can be run.
       const list = await invoke<RunInfo[]>("run_candidates", { root }).catch(() => [] as RunInfo[]);
       if (!list.length) {
-        this.editCommand("Tern couldn't tell how to start this project. What command runs it?");
+        this.editCommand(t("Tern couldn't tell how to start this project. What command runs it?"));
         return;
       }
       const b = this.runBtn.getBoundingClientRect();
@@ -83,7 +84,7 @@ export class ProjectTools {
         hint: c.source ?? undefined,
         run: () => this.start(c),
       }));
-      items.push(null, { label: "Set a command for this folder…", run: () => this.editCommand() });
+      items.push(null, { label: t("Set a command for this folder…"), run: () => this.editCommand() });
       this.showMenu(items, b.left, b.bottom + 4);
     }
   }
@@ -102,10 +103,10 @@ export class ProjectTools {
     const info = await invoke<RunInfo>("run_detect", { root, from: this.getFrom() }).catch(() => null);
     if (!info) return;
     this.runBtn.title = info.command
-      ? `Run: ${info.command}\nin ${info.dir}\nRight-click to change`
+      ? t("Run: {command}\nin {dir}\nRight-click to change", { command: info.command, dir: info.dir })
       : info.preview
-        ? "Preview index.html\nRight-click to set a command"
-        : "Run a project from this folder";
+        ? t("Preview index.html\nRight-click to set a command")
+        : t("Run a project from this folder");
   }
 
   private async editCommand(note?: string) {
@@ -114,27 +115,27 @@ export class ProjectTools {
     const info = await invoke<RunInfo>("run_detect", { root, from: this.getFrom() });
     const pop = this.pop;
     pop.innerHTML =
-      `<div class="rp-title">run command</div>` +
+      `<div class="rp-title">${t("run command")}</div>` +
       `<div class="rp-note"></div>` +
       `<input type="text" spellcheck="false" autocomplete="off" />` +
       `<div class="rp-row"><span class="rp-where"></span><span class="rp-buttons"></span></div>`;
     pop.querySelector(".rp-note")!.textContent =
-      note ?? "Runs in a new terminal tab in the project folder. Saved for this project only.";
+      note ?? t("Runs in a new terminal tab in the project folder. Saved for this project only.");
     const input = pop.querySelector("input")!;
     input.value = info.command ?? "";
-    input.placeholder = "e.g. npm run dev";
+    input.placeholder = t("e.g. npm run dev");
     pop.querySelector<HTMLElement>(".rp-where")!.title = info.dir;
-    pop.querySelector(".rp-where")!.textContent = info.custom ? ".tern/run.json" : info.source ? `detected from ${info.source}` : "";
+    pop.querySelector(".rp-where")!.textContent = info.custom ? ".tern/run.json" : info.source ? t("detected from {source}", { source: info.source }) : "";
     const buttons = pop.querySelector(".rp-buttons")!;
-    const save = button("save & run", "primary");
+    const save = button(t("save & run"), "primary");
     buttons.append(save);
     if (info.custom) {
-      const reset = button("auto");
-      reset.title = "Forget this command and detect it again";
+      const reset = button(t("auto"));
+      reset.title = t("Forget this command and detect it again");
       reset.addEventListener("click", async () => {
         await invoke("run_save", { root: info.dir, command: "" }).catch((e) => toast(String(e)));
         pop.hidden = true;
-        toast("Run command: back to automatic");
+        toast(t("Run command: back to automatic"));
       });
       buttons.prepend(reset);
     }
@@ -145,7 +146,7 @@ export class ProjectTools {
         try {
           await invoke("run_save", { root: info.dir, command: cmd });
         } catch (e) {
-          return toast(`Could not save: ${e}`);
+          return toast(t("Could not save: {error}", { error: String(e) }));
         }
       }
       pop.hidden = true;
@@ -184,14 +185,14 @@ export class ProjectTools {
     const ides = await this.list();
     if (!ides.length) {
       this.ides = null; // look again next time: one may have been installed meanwhile
-      return toast("No IDE found — install IntelliJ IDEA, PyCharm or VS Code", 4000);
+      return toast(t("No IDE found — install IntelliJ IDEA, PyCharm or VS Code"), 4000);
     }
     const ide = await this.pick(ides, root ?? target);
     try {
       await invoke("ide_open", { id: ide.id, path: target });
-      toast(`Opening in ${ide.name}…`);
+      toast(t("Opening in {ide}…", { ide: ide.name }));
     } catch (err) {
-      toast(`Could not start ${ide.name}: ${err}`, 4000);
+      toast(t("Could not start {ide}: {error}", { ide: ide.name, error: String(err) }), 4000);
     }
   }
 
@@ -206,17 +207,17 @@ export class ProjectTools {
     const root = this.getRoot();
     const ides = await this.list();
     if (!ides.length || !root) {
-      this.ideBtn.title = "Open in IDE";
+      this.ideBtn.title = t("Open in IDE");
       return;
     }
     const ide = await this.pick(ides, root);
-    this.ideBtn.title = `Open the project in ${ide.name}\nRight-click to choose the IDE`;
+    this.ideBtn.title = t("Open the project in {ide}\nRight-click to choose the IDE", { ide: ide.name });
   }
 
   private async chooseIde(x: number, y: number) {
     this.ides = null;
     const ides = await this.list();
-    if (!ides.length) return toast("No IDE found — install IntelliJ IDEA, PyCharm or VS Code", 4000);
+    if (!ides.length) return toast(t("No IDE found — install IntelliJ IDEA, PyCharm or VS Code"), 4000);
     const items: MenuItem[] = ides.map((i) => ({
       label: i.name,
       hint: i.id === this.ide ? "✓" : undefined,
@@ -227,7 +228,7 @@ export class ProjectTools {
       },
     }));
     items.push(null, {
-      label: "Pick by project language",
+      label: t("Pick by project language"),
       hint: this.ide ? undefined : "✓",
       run: () => {
         this.ide = undefined;

@@ -7,7 +7,6 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::ipc::{InvokeBody, Request};
 
 /// Pasted images older than this are deleted on startup.
-const KEEP: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
 fn paste_dir() -> PathBuf {
     std::env::temp_dir().join("Tern").join("pasted")
@@ -57,8 +56,13 @@ pub async fn save_paste(request: Request<'_>) -> Result<String, String> {
 }
 
 /// Deletes pasted images older than a week. Runs in the background so startup does not wait.
-pub fn cleanup_old_pastes() {
-    std::thread::spawn(|| {
+/// Deletes pasted pictures older than `days` (0 = keep forever).
+pub fn cleanup_old_pastes(days: u32) {
+    if days == 0 {
+        return;
+    }
+    let keep = Duration::from_secs(u64::from(days) * 24 * 60 * 60);
+    std::thread::spawn(move || {
         let Ok(entries) = std::fs::read_dir(paste_dir()) else { return };
         let now = SystemTime::now();
         for e in entries.flatten() {
@@ -67,7 +71,7 @@ pub fn cleanup_old_pastes() {
                 .and_then(|m| m.modified())
                 .ok()
                 .and_then(|t| now.duration_since(t).ok())
-                .is_some_and(|age| age > KEEP);
+                .is_some_and(|age| age > keep);
             if old && e.path().is_file() {
                 let _ = std::fs::remove_file(e.path());
             }

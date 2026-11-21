@@ -2,6 +2,8 @@ import { invoke, Channel } from "@tauri-apps/api/core";
 import type { Tabs } from "./tabs";
 import type { TermSession } from "./terminal";
 import { toast } from "./toast";
+import { t, tt } from "./i18n";
+import { matches, showCombo } from "./settings";
 
 /**
  * Voice input: Alt+Z (or the mic button) starts recording, pressing again stops it, and the
@@ -28,11 +30,11 @@ interface Mic {
   default: boolean;
 }
 
-const MODEL_LABEL: Record<string, [string, string]> = {
+export const MODEL_LABEL: Record<string, [string, string]> = {
   small: ["small", "fast, good for most speech"],
   "large-v3-turbo": ["large-v3-turbo", "more accurate, slower"],
 };
-const LANGS: [string, string][] = [
+export const LANGS: [string, string][] = [
   ["auto", "auto-detect (slower)"],
   ["en", "English"],
   ["ru", "Русский"],
@@ -40,7 +42,7 @@ const LANGS: [string, string][] = [
 ];
 
 /** Speaking the system's language is the likely case; detecting it costs seconds per phrase. */
-function defaultLang() {
+export function defaultLang() {
   const sys = navigator.language.slice(0, 2).toLowerCase();
   return LANGS.some(([code]) => code === sys) ? sys : "en";
 }
@@ -54,6 +56,8 @@ export class Voice {
   settings: VoiceSettings = { model: "small" };
   /** Called when settings change, so they can be saved. */
   onChange: () => void = () => {};
+  /** The start / stop key (from settings). */
+  key = "Alt+Z";
 
   private phase: Phase = "idle";
   private button: HTMLButtonElement;
@@ -71,7 +75,7 @@ export class Voice {
   ) {
     this.button = document.createElement("button");
     this.button.id = "btn-voice";
-    this.button.title = "Voice input (Alt+Z) — right-click for options";
+    tt(this.button, "Voice input (Alt+Z) — right-click for options");
     this.button.tabIndex = -1;
     this.button.innerHTML = MIC;
     this.button.addEventListener("mousedown", (e) => e.preventDefault());
@@ -98,7 +102,7 @@ export class Voice {
     window.addEventListener(
       "keydown",
       (e) => {
-        if (e.code === "KeyZ" && e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+        if (matches(e, this.key)) {
           e.preventDefault();
           e.stopPropagation();
           if (!e.repeat) this.toggle();
@@ -124,7 +128,7 @@ export class Voice {
     if (this.phase === "recording") return this.stop();
     if (this.phase !== "idle") return;
     const session = this.tabs.activeSession;
-    if (!session) return toast("Open a terminal tab first");
+    if (!session) return toast(t("Open a terminal tab first"));
     const models = await invoke<ModelInfo[]>("voice_models").catch(() => []);
     if (!models.find((m) => m.id === this.settings.model)?.installed) {
       const other = models.find((m) => m.installed);
@@ -156,13 +160,13 @@ export class Voice {
     const target = this.target;
     try {
       const text = await invoke<string>("voice_stop", { model: this.settings.model, lang: this.lang === "auto" ? null : this.lang });
-      if (!text) toast("Didn't catch any speech");
+      if (!text) toast(t("Didn't catch any speech"));
       else if (target) {
         target.paste(text + " ");
         target.focus();
       }
     } catch (err) {
-      toast(`Voice input failed: ${String(err).replace(/^\w+: /, "")}`, 4000);
+      toast(t("Voice input failed: {error}", { error: String(err).replace(/^\w+: /, "") }), 4000);
     }
     this.setPhase("idle");
   }
@@ -170,7 +174,7 @@ export class Voice {
   private cancel() {
     invoke("voice_cancel").catch(() => {});
     this.setPhase("idle");
-    toast("Recording discarded");
+    toast(t("Recording discarded"));
   }
 
   private setPhase(p: Phase) {
@@ -187,7 +191,7 @@ export class Voice {
     this.pill.hidden = false;
     this.pill.className = p;
     if (p === "busy") {
-      this.pill.innerHTML = `<span class="vp-dots"><i></i><i></i><i></i></span> transcribing…`;
+      this.pill.innerHTML = `<span class="vp-dots"><i></i><i></i><i></i></span> ${t("transcribing…")}`;
       return;
     }
     const draw = () => {
@@ -195,7 +199,7 @@ export class Voice {
       const time = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
       this.pill.innerHTML =
         `<span class="vp-dot"></span><span class="vp-bars"><i></i><i></i><i></i><i></i><i></i></span>` +
-        `<span class="vp-time">${time}</span><span class="vp-hint">Alt+Z stop · Esc cancel</span>`;
+        `<span class="vp-time">${time}</span><span class="vp-hint">${t("{key} stop · Esc cancel", { key: showCombo(this.key) })}</span>`;
     };
     draw();
     this.clock = window.setInterval(draw, 1000);
@@ -203,7 +207,7 @@ export class Voice {
 
   // ── options / model download ──────────────────────────
 
-  private async openPop() {
+  async openPop() {
     const [models, mics] = await Promise.all([
       invoke<ModelInfo[]>("voice_models").catch(() => [] as ModelInfo[]),
       invoke<Mic[]>("voice_mics").catch(() => [] as Mic[]),
@@ -213,17 +217,17 @@ export class Voice {
     const pop = this.pop;
     pop.innerHTML = "";
 
-    const title = el("div", "vo-title", "voice input");
+    const title = el("div", "vo-title", t("voice input"));
     const note = el(
       "div",
       "vo-note",
       anyInstalled
-        ? "Alt+Z to start and stop. Speech is recognised on this computer, offline."
-        : "Speech is recognised on this computer, offline. It needs a speech model, downloaded once.",
+        ? t("{key} to start and stop. Speech is recognised on this computer, offline.", { key: showCombo(this.key) })
+        : t("Speech is recognised on this computer, offline. It needs a speech model, downloaded once."),
     );
     pop.append(title, note);
 
-    pop.append(el("div", "vo-label", "model"));
+    pop.append(el("div", "vo-label", t("model")));
     for (const m of models) {
       const [name, desc] = MODEL_LABEL[m.id] ?? [m.id, ""];
       const row = el("label", "vo-model");
@@ -237,11 +241,11 @@ export class Voice {
         this.openPop();
       });
       const text = el("span", "vo-mtext");
-      text.append(el("span", "vo-mname", name), el("span", "vo-mdesc", `${mb(m.size)} · ${desc}`));
+      text.append(el("span", "vo-mname", name), el("span", "vo-mdesc", `${mb(m.size)} · ${t(desc)}`));
       row.append(radio, text);
       if (m.installed) {
-        const del = el("button", "vo-del", "delete");
-        del.title = "Delete the downloaded model";
+        const del = el("button", "vo-del", t("delete"));
+        del.title = t("Delete the downloaded model");
         del.addEventListener("click", async (e) => {
           e.preventDefault();
           await invoke("voice_delete_model", { model: m.id }).catch((err) => toast(String(err)));
@@ -255,7 +259,7 @@ export class Voice {
     const chosen = models.find((m) => m.id === this.settings.model);
     if (chosen && !chosen.installed) {
       const dl = el("div", "vo-dl");
-      const btn = el("button", "vo-btn", `download ${MODEL_LABEL[chosen.id]?.[0] ?? chosen.id} · ${mb(chosen.size)}`);
+      const btn = el("button", "vo-btn", t("download {model} · {size}", { model: MODEL_LABEL[chosen.id]?.[0] ?? chosen.id, size: mb(chosen.size) }));
       const bar = el("div", "vo-bar");
       const fill = el("i", "");
       bar.append(fill);
@@ -263,31 +267,31 @@ export class Voice {
       const status = el("span", "vo-status");
       btn.addEventListener("click", () => this.download(chosen, btn, bar, fill, status));
       if (this.downloading) {
-        btn.textContent = "cancel";
+        btn.textContent = t("cancel");
         bar.hidden = false;
-        status.textContent = "downloading…";
+        status.textContent = t("downloading…");
       }
       dl.append(btn, bar, status);
       pop.append(dl);
     }
 
-    pop.append(el("div", "vo-label", "microphone"));
+    pop.append(el("div", "vo-label", t("microphone")));
     const micSel = document.createElement("select");
     micSel.className = "vo-select";
-    micSel.append(new Option("system default", ""));
+    micSel.append(new Option(t("system default"), ""));
     for (const m of mics) micSel.append(new Option(m.name, m.id));
     micSel.value = mics.some((m) => m.id === this.settings.mic) ? this.settings.mic! : "";
     micSel.addEventListener("change", () => {
       this.settings.mic = micSel.value || undefined;
       this.onChange();
     });
-    if (!mics.length) micSel.title = "No microphone found";
+    if (!mics.length) micSel.title = t("No microphone found");
     pop.append(micSel);
 
-    pop.append(el("div", "vo-label", "language"));
+    pop.append(el("div", "vo-label", t("language")));
     const langSel = document.createElement("select");
     langSel.className = "vo-select";
-    for (const [code, name] of LANGS) langSel.append(new Option(name, code));
+    for (const [code, name] of LANGS) langSel.append(new Option(t(name), code));
     langSel.value = this.lang;
     langSel.addEventListener("change", () => {
       this.settings.lang = langSel.value === defaultLang() ? undefined : langSel.value;
@@ -321,9 +325,9 @@ export class Voice {
       return;
     }
     this.downloading = true;
-    btn.textContent = "cancel";
+    btn.textContent = t("cancel");
     bar.hidden = false;
-    status.textContent = "connecting…";
+    status.textContent = t("connecting…");
     const events = new Channel<{ type: "progress"; done: number; total: number }>();
     events.onmessage = (e) => {
       const pct = e.total ? (e.done / e.total) * 100 : 0;
@@ -333,24 +337,24 @@ export class Voice {
     try {
       await invoke("voice_download", { model: m.id, onEvent: events });
       this.downloading = false;
-      toast("Speech model ready — press Alt+Z to talk");
+      toast(t("Speech model ready — press {key} to talk", { key: showCombo(this.key) }));
       this.openPop();
     } catch (err) {
       this.downloading = false;
       const msg = String(err);
       if (msg === "cancelled") this.openPop();
       else {
-        btn.textContent = "retry";
-        status.textContent = msg.startsWith("network") ? "no connection — try again" : msg;
+        btn.textContent = t("retry");
+        status.textContent = msg.startsWith("network") ? t("no connection — try again") : msg;
       }
     }
   }
 }
 
 function micError(err: string) {
-  if (err === "no-model") return "Download a speech model first (right-click the mic)";
-  if (err.includes("none")) return "No microphone found";
-  return `Microphone unavailable — check Windows privacy settings (${err.replace(/^mic: /, "")})`;
+  if (err === "no-model") return t("Download a speech model first (right-click the mic)");
+  if (err.includes("none")) return t("No microphone found");
+  return t("Microphone unavailable — check Windows privacy settings ({error})", { error: err.replace(/^mic: /, "") });
 }
 
 function el(tag: string, cls: string, text?: string) {

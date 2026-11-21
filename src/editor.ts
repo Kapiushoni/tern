@@ -1,6 +1,7 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import type { CodeEditor } from "./cm";
 import { isImage } from "./attach";
+import { t, tx } from "./i18n";
 
 const baseName = (p: string) => p.split(/[\\/]/).pop() || p;
 const isMarkdown = (p: string) => /\.(md|markdown)$/i.test(p);
@@ -103,7 +104,7 @@ export class Editor {
       const img = document.createElement("img");
       img.src = convertFileSrc(path) + `?t=${Date.now()}`;
       img.className = "ed-image";
-      img.onerror = () => this.message("Can't show this image.");
+      img.onerror = () => this.message(t("Can't show this image."));
       this.body.replaceChildren(img);
     } else {
       const preview = !opts.at && (opts.preview || isMarkdown(path));
@@ -122,9 +123,9 @@ export class Editor {
     } catch (err) {
       const e = String(err);
       this.message(
-        e === "too-large" ? "This file is too big to open here (over 5 MB)."
-          : e === "binary" ? "This is not a text file."
-          : `Can't open the file: ${e}`,
+        e === "too-large" ? t("This file is too big to open here (over 5 MB).")
+          : e === "binary" ? t("This is not a text file.")
+          : t("Can't open the file: {error}", { error: e }),
       );
       return;
     }
@@ -151,7 +152,7 @@ export class Editor {
       change: () => this.setDirty(this.code!.text() !== this.savedText),
     });
     this.mode = "code";
-    this.modeBtn.textContent = "preview";
+    tx(this.modeBtn, "preview");
   }
 
   private async showPreview(text: string) {
@@ -171,7 +172,7 @@ export class Editor {
     this.code = null;
     this.body.replaceChildren(div);
     this.mode = "preview";
-    this.modeBtn.textContent = "text";
+    tx(this.modeBtn, "text");
   }
 
   /** The page as a browser shows it, from Tern's local preview server. */
@@ -182,7 +183,7 @@ export class Editor {
     try {
       url = await invoke<string>("preview_url", { root, file: path });
     } catch (err) {
-      this.message(`Can't preview this page: ${err}`);
+      this.message(t("Can't preview this page: {error}", { error: String(err) }));
       return;
     }
     if (this.path !== path) return;
@@ -196,7 +197,7 @@ export class Editor {
     this.body.replaceChildren(frame);
     this.servedRoot = root;
     this.mode = "preview";
-    this.modeBtn.textContent = "text";
+    tx(this.modeBtn, "text");
   }
 
   private async toggleMode() {
@@ -240,16 +241,16 @@ export class Editor {
       return true;
     } catch (err) {
       if (String(err) === "changed-on-disk") {
-        const c = await this.ask("The file was changed on disk since you opened it.", [
-          ["overwrite", "Overwrite with mine"],
-          ["reload", "Load theirs"],
-          ["cancel", "Cancel"],
+        const c = await this.ask(t("The file was changed on disk since you opened it."), [
+          ["overwrite", t("Overwrite with mine")],
+          ["reload", t("Load theirs")],
+          ["cancel", t("Cancel")],
         ]);
         if (c === "overwrite") return this.save(true);
         if (c === "reload") await this.reloadFromDisk();
         return false;
       }
-      await this.ask(`Could not save: ${err}`, [["ok", "OK"]]);
+      await this.ask(t("Could not save: {error}", { error: String(err) }), [["ok", t("OK")]]);
       return false;
     }
   }
@@ -286,9 +287,9 @@ export class Editor {
       this.apply(file);
       return;
     }
-    const c = await this.ask("The file changed on disk, and you have unsaved edits.", [
-      ["theirs", "Load the new version"],
-      ["mine", "Keep mine"],
+    const c = await this.ask(t("The file changed on disk, and you have unsaved edits."), [
+      ["theirs", t("Load the new version")],
+      ["mine", t("Keep mine")],
     ]);
     if (c === "theirs") this.apply(file);
   }
@@ -313,10 +314,10 @@ export class Editor {
   /** Before switching files or closing: false if the user wants to stay. */
   private async confirmLeave(): Promise<boolean> {
     if (!this.dirty) return true;
-    const c = await this.ask(`Save changes to ${baseName(this.path!)}?`, [
-      ["save", "Save"],
-      ["discard", "Don't save"],
-      ["cancel", "Cancel"],
+    const c = await this.ask(t("Save changes to {name}?", { name: baseName(this.path!) }), [
+      ["save", t("Save")],
+      ["discard", t("Don't save")],
+      ["cancel", t("Cancel")],
     ]);
     if (c === "save") return this.save();
     return c === "discard";

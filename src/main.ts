@@ -4,16 +4,23 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import "./styles.css";
 import { FileTree } from "./tree";
-import { setTerminalTheme, TermKind, ThemeName } from "./terminal";
+import { setTerminalOptions, setTerminalTheme, TermKind } from "./terminal";
 import { Tabs, SavedTab } from "./tabs";
 import { Attachments } from "./attach";
 import { Editor } from "./editor";
-import { Voice, VoiceSettings } from "./voice";
+import { Voice } from "./voice";
 import { QuickOpen } from "./quickopen";
 import { Search } from "./search";
 import { ProjectTools } from "./projecttools";
+import { Action, matches, Settings, SettingsStore, showCombo } from "./settings";
+import { SettingsWindow } from "./settingsui";
+import { setLang, t, tt } from "./i18n";
+import { InstallScreen, showSplash, StartScreen } from "./screens";
+import { setSound } from "./sound";
+import { setTypewriter, toast } from "./toast";
 
 const app = document.getElementById("app")!;
+const root = document.documentElement;
 const termHost = document.getElementById("terminal-host")!;
 const panes = document.getElementById("panes")!;
 const rootName = document.getElementById("root-name")!;
@@ -26,6 +33,7 @@ const editorSplit = document.getElementById("editor-split")!;
 const center = document.getElementById("center")!;
 const btnTheme = document.getElementById("btn-theme")!;
 
+const store = new SettingsStore();
 const tree = new FileTree(document.getElementById("tree")!);
 const tabs = new Tabs(document.getElementById("tabs")!, panes);
 const attachments = new Attachments(termHost, panes, tabs);
@@ -34,6 +42,10 @@ const voice = new Voice(tabs, attachments.tools, termHost);
 const quickOpen = new QuickOpen();
 const search = new Search(document.getElementById("search-view")!);
 const projectTools = new ProjectTools(tabs, document.getElementById("btn-run")!, document.getElementById("btn-ide")!);
+const settingsWindow = new SettingsWindow(store);
+const startScreen = new StartScreen(panes);
+const installScreen = new InstallScreen(termHost);
+
 const projectRoot = () => tree.root || null;
 quickOpen.getRoot = projectRoot;
 quickOpen.onOpen = (path) => editor.open(path);
@@ -52,12 +64,13 @@ projectTools.openPreview = (path) => editor.open(path, { preview: true });
 tree.onOpenInIde = (path) => projectTools.openIde(path);
 // An HTML preview serves the project folder, so links like "/css/site.css" work.
 editor.previewRoot = (path) => {
-  const root = tree.root.replace(/[\\/]+$/, "");
+  const r = tree.root.replace(/[\\/]+$/, "");
   const lower = path.toLowerCase();
-  if (root && (lower.startsWith(root.toLowerCase() + "\\") || lower.startsWith(root.toLowerCase() + "/"))) return root;
+  if (r && (lower.startsWith(r.toLowerCase() + "\\") || lower.startsWith(r.toLowerCase() + "/"))) return r;
   return path.replace(/[\\/][^\\/]*$/, "");
 };
 document.getElementById("btn-search")!.addEventListener("click", () => search.open());
+document.getElementById("btn-settings")!.addEventListener("click", () => settingsWindow.open());
 tree.onDragOut = (path, target) => {
   if (target?.closest("#terminal-host")) tabs.attach([path]);
   else if (target?.closest("#editor")) editor.open(path);
@@ -66,8 +79,8 @@ tree.onOpen = (path) => editor.open(path);
 tree.onAskClaude = (path) => tabs.askClaude(path);
 attachments.onOpenFile = (path) => editor.open(path);
 let home = "";
-let theme: ThemeName = "dark";
 
+/** The session (what is open, and where); settings live in settings.json. */
 interface Saved {
   version: 1;
   tabs: SavedTab[];
@@ -77,9 +90,11 @@ interface Saved {
   /** The file open in the editor panel, and the panel's share of the height in %. */
   editorFile?: string;
   editorH?: number;
-  theme?: ThemeName;
-  voice?: VoiceSettings;
-  /** The IDE for "Open in IDE"; unset = by project language. */
+  /** Project folders, most recent first, for the start screen. */
+  recent?: string[];
+  // Older versions kept these here; they seed settings.json once.
+  theme?: "dark" | "light";
+  voice?: { model?: string; mic?: string; lang?: string };
   ide?: string;
 }
 
@@ -87,12 +102,17 @@ function baseName(p: string) {
   return p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || p;
 }
 
+let recent: string[] = [];
+function noteRecent(dir: string) {
+  recent = [dir, ...recent.filter((d) => d.toLowerCase() !== dir.toLowerCase())].slice(0, 8);
+}
+
 // ── session save (debounced) ─────────────────────────────
 let saveTimer = 0;
 function save() {
   clearTimeout(saveTimer);
   saveTimer = window.setTimeout(() => {
-    const css = getComputedStyle(document.documentElement);
+    const css = getComputedStyle(root);
     const w = parseInt(css.getPropertyValue("--sidebar-w"));
     const eh = parseFloat(css.getPropertyValue("--editor-h"));
     const data: Saved = {
@@ -102,22 +122,23 @@ function save() {
       sidebarHidden: app.classList.contains("no-sidebar"),
       editorFile: editor.path ?? undefined,
       editorH: Number.isFinite(eh) ? eh : undefined,
-      theme,
-      voice: voice.settings,
-      ide: projectTools.ide,
+      recent,
     };
     invoke("session_save", { json: JSON.stringify(data) }).catch(() => {});
   }, 300);
 }
 tabs.onChange = save;
-voice.onChange = save;
-projectTools.onChange = save;
+voice.onChange = () =>
+  store.update((s) => {
+    s.voice = { model: voice.settings.model, microphone: voice.settings.mic ?? null, language: voice.settings.lang ?? null };
+  });
+projectTools.onChange = () => store.update((s) => (s.ide = projectTools.ide ?? null));
 
-// ── watching the disk: tree, git colours and the open file follow outside edits ──
+// ── watching the disk: tree, git colours, the open file and settings.json ──
 let watchKey = "";
 function updateWatch() {
   const roots = tree.root ? [tree.root] : [];
-  const files = editor.path ? [editor.path] : [];
+  const files = [editor.path, store.path].filter((p): p is string => !!p);
   const key = JSON.stringify([roots, files]);
   if (key === watchKey) return;
   watchKey = key;
@@ -129,41 +150,110 @@ editor.onChange = () => {
   updateWatch();
 };
 listen<{ paths: string[]; git: boolean }>("fs-change", (e) => {
-  tree.onDiskChange(e.payload.paths, e.payload.git);
+  const paths = e.payload.paths;
+  if (store.path && paths.some((p) => p.toLowerCase() === store.path.toLowerCase())) store.reload();
+  tree.onDiskChange(paths, e.payload.git);
   quickOpen.invalidate();
-  editor.onDiskChange(e.payload.paths);
+  editor.onDiskChange(paths);
 });
 
-// ── theme ────────────────────────────────────────────────
-function applyTheme(name: ThemeName) {
-  theme = name;
-  if (name === "light") document.documentElement.dataset.theme = "light";
-  else delete document.documentElement.dataset.theme;
-  setTerminalTheme(name);
-  // The Windows title bar follows too.
-  getCurrentWindow().setTheme(name).catch(() => {});
-  btnTheme.title = name === "light" ? "Dark theme" : "Light theme";
+// ── settings → every part of the app ─────────────────────
+/** CSS variables set from settings (accent, colour overrides), so stale ones can be removed. */
+let styled: string[] = [];
+
+function hexAlpha(hex: string, a: number) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
 }
-btnTheme.addEventListener("click", () => {
-  applyTheme(theme === "light" ? "dark" : "light");
-  save();
-});
+
+function applyLook(s: Settings) {
+  if (s.theme === "light") root.dataset.theme = "light";
+  else delete root.dataset.theme;
+  for (const name of styled) root.style.removeProperty(name);
+  styled = [];
+  const setVar = (name: string, value: string) => {
+    root.style.setProperty(name, value);
+    styled.push(name);
+  };
+  const light = s.theme === "light";
+  // The light theme keeps the default accent a little darker, for contrast on white.
+  const accent = s.accent.toLowerCase() === "#ff2e88" && light ? "#d6006e" : s.accent;
+  setVar("--accent", accent);
+  setVar("--accent-soft", hexAlpha(accent, light ? 0.1 : 0.14));
+  // Glow off = an invisible shadow, so every rule using --glow simply loses it.
+  setVar("--glow", s.effects.glow ? `0 0 6px ${hexAlpha(accent, light ? 0.35 : 0.55)}` : "0 0 0 transparent");
+  for (const [k, v] of Object.entries(s.colors[s.theme])) setVar(`--${k.replace(/^--/, "")}`, v);
+  setVar("--mono", `"${s.font.family.replace(/"/g, "")}", "Commit Mono", "Cascadia Mono", Consolas, ui-monospace, monospace`);
+  setVar("--term-pad", `${s.terminal.padding}px`);
+  root.classList.toggle("fx-glow", s.effects.glow);
+  root.classList.toggle("fx-crt", s.effects.crt);
+  setTerminalTheme(s.theme, accent);
+  setTerminalOptions({ font: s.font.family, size: s.font.size, scrollback: s.terminal.scrollback, gpu: s.terminal.gpu });
+  getCurrentWindow().setTheme(s.theme).catch(() => {});
+  tt(btnTheme, light ? "Dark theme" : "Light theme");
+}
+
+let keys: Settings["keys"] = store.value.keys;
+
+store.onError = (msg) => toast(t("settings.json has an error: {error}", { error: msg }), 6000);
+store.onApply = (s, before) => {
+  setLang(s.language);
+  applyLook(s);
+  setSound(s.sound.enabled, s.sound.volume);
+  setTypewriter(s.effects.typewriter);
+  voice.settings = { model: s.voice.model, mic: s.voice.microphone ?? undefined, lang: s.voice.language ?? undefined };
+  voice.key = s.keys.voice;
+  projectTools.ide = s.ide ?? undefined;
+  keys = s.keys;
+  invoke("settings_runtime", {
+    runtime: {
+      claudePath: s.claude.path,
+      claudeArgs: s.claude.args,
+      shell: s.terminal.shell,
+      hiddenFolders: s.tree.hiddenFolders,
+      imagesKeepDays: s.images.keepDays,
+    },
+  }).catch(() => {});
+  if (JSON.stringify(s.tree.hiddenFolders) !== JSON.stringify(before.tree.hiddenFolders)) {
+    tree.refreshSoon();
+    quickOpen.invalidate();
+  }
+  if (tabs.count === 0 && home) showStart();
+  settingsWindow.refresh();
+  updateWatch();
+};
+
+btnTheme.addEventListener("click", () => store.update((s) => (s.theme = s.theme === "light" ? "dark" : "light")));
+
+settingsWindow.onOpenJson = () => editor.open(store.path);
+settingsWindow.onVoiceModels = () => voice.openPop();
+settingsWindow.onInstallClaude = () => installClaude();
+
+// ── start screen and Claude Code install ─────────────────
+function showStart() {
+  startScreen.show(recent, store.value.effects.asciiLogo, keys);
+}
+startScreen.onOpen = (dir) => tabs.open("claude", dir);
+startScreen.onPickFolder = async () => {
+  const picked = await open({ directory: true, defaultPath: home });
+  if (typeof picked === "string") await tabs.open("claude", picked);
+};
+
+async function installClaude() {
+  const cmd = await invoke<string>("claude_install_command");
+  await tabs.open("shell", currentDir() || home, { run: cmd, label: "Claude Code ⇣" });
+}
+installScreen.onInstall = installClaude;
+installScreen.onNever = () => store.update((s) => (s.claude.installPrompt = false));
 
 // ── tree follows the active tab ──────────────────────────
-function showEmpty(on: boolean) {
-  panes.querySelector(".notice")?.remove();
-  if (!on) return;
-  const n = document.createElement("div");
-  n.className = "notice";
-  n.innerHTML =
-    `<div><b>No tabs open</b></div>` +
-    `<div><kbd>Ctrl+\`</kbd> Claude &nbsp; <kbd>Ctrl+Shift+T</kbd> shell</div>`;
-  panes.append(n);
-}
-
 tabs.onActivate = (cwd) => {
-  showEmpty(cwd === null);
-  if (cwd === null) return;
+  if (cwd === null) {
+    showStart();
+    return;
+  }
+  startScreen.hide();
+  noteRecent(cwd);
   rootName.textContent = baseName(cwd);
   rootName.title = cwd;
   tree.open(cwd);
@@ -177,7 +267,7 @@ const newTab = (kind: TermKind) => tabs.open(kind, currentDir() || home);
 btnHidden.addEventListener("click", async () => {
   const on = btnHidden.getAttribute("aria-pressed") !== "true";
   btnHidden.setAttribute("aria-pressed", String(on));
-  btnHidden.title = on ? "Hide hidden files" : "Show hidden files";
+  tt(btnHidden, on ? "Hide hidden files" : "Show hidden files");
   await tree.setShowHidden(on);
 });
 
@@ -190,6 +280,9 @@ function toggleMenu(show = newMenu.hidden) {
   newMenu.hidden = !show;
   btnNew.setAttribute("aria-expanded", String(show));
   if (show) {
+    const kbds = newMenu.querySelectorAll("kbd");
+    kbds[0].textContent = showCombo(keys.newClaude);
+    kbds[1].textContent = showCombo(keys.newShell);
     const r = btnNew.getBoundingClientRect();
     newMenu.style.left = `${Math.min(r.left, window.innerWidth - newMenu.offsetWidth - 8)}px`;
     newMenu.querySelector<HTMLElement>("button")?.focus();
@@ -212,7 +305,7 @@ document.addEventListener("click", (e) => {
 // ── splitters ────────────────────────────────────────────
 /**
  * Dragging a splitter shows only a thin line where it will land; the layout changes once, on
- * release. Resizing live made the terminal's WebGL canvas blink on every frame.
+ * release. Resizing live made the terminal blink on every frame.
  */
 function dragSplitter(
   el: HTMLElement,
@@ -261,7 +354,7 @@ dragSplitter(
   splitter,
   "x",
   (x) => Math.min(Math.max(x, 160), window.innerWidth * 0.5),
-  (x) => document.documentElement.style.setProperty("--sidebar-w", `${x}px`),
+  (x) => root.style.setProperty("--sidebar-w", `${x}px`),
 );
 
 dragSplitter(
@@ -274,35 +367,49 @@ dragSplitter(
   (y) => {
     // Kept as a percentage of the column, so it fits any window size.
     const r = center.getBoundingClientRect();
-    document.documentElement.style.setProperty("--editor-h", `${(((y - r.top) / r.height) * 100).toFixed(1)}%`);
+    root.style.setProperty("--editor-h", `${(((y - r.top) / r.height) * 100).toFixed(1)}%`);
   },
 );
 
-// ── hotkeys (physical key codes: work in any keyboard layout) ─
+// ── hotkeys (from settings; physical key positions, so any keyboard layout works) ─
+const actions: Record<Exclude<Action, "voice">, () => void> = {
+  toggleTree: () => {
+    app.classList.toggle("no-sidebar");
+    save();
+  },
+  newClaude: () => newTab("claude"),
+  newShell: () => newTab("shell"),
+  attach: () => attachments.pick(),
+  goToFile: () => (quickOpen.isOpen ? quickOpen.close() : quickOpen.open()),
+  searchFiles: () => search.open(),
+  settings: () => (settingsWindow.isOpen ? settingsWindow.close() : settingsWindow.open()),
+  closeTab: () => {
+    // In the editor, closing means the file rather than the terminal tab.
+    if (editor.isOpen && document.activeElement?.closest("#editor")) editor.close();
+    else tabs.close();
+  },
+  nextTab: () => tabs.cycle(1),
+  prevTab: () => tabs.cycle(-1),
+};
+
 window.addEventListener(
   "keydown",
   (e) => {
-    const mod = e.ctrlKey || e.metaKey;
     if (e.key === "Escape" && !newMenu.hidden) return toggleMenu(false);
-    if (!mod || e.altKey) return;
-    const shift = e.shiftKey;
-    let handled = true;
-    if (!shift && e.code === "KeyB") {
-      app.classList.toggle("no-sidebar");
-      save();
-    } else if (!shift && e.code === "Backquote") newTab("claude");
-    else if (shift && e.code === "KeyT") newTab("shell");
-    else if (shift && e.code === "KeyA") attachments.pick();
-    else if (!shift && e.code === "KeyP") quickOpen.isOpen ? quickOpen.close() : quickOpen.open();
-    else if (shift && e.code === "KeyF") search.open();
-    else if (!shift && e.code === "KeyW") {
-      // In the editor, Ctrl+W closes the file rather than the terminal tab.
-      if (editor.isOpen && document.activeElement?.closest("#editor")) editor.close();
-      else tabs.close();
+    let handled = false;
+    for (const [action, run] of Object.entries(actions)) {
+      if (matches(e, keys[action as Action])) {
+        run();
+        handled = true;
+        break;
+      }
     }
-    else if (e.code === "Tab") tabs.cycle(shift ? -1 : 1);
-    else if (!shift && /^Digit[1-9]$/.test(e.code)) tabs.pick(Number(e.code.slice(5)));
-    else handled = false;
+    // Ctrl+1…9 picks a tab.
+    const mod = e.ctrlKey || e.metaKey;
+    if (!handled && mod && !e.shiftKey && !e.altKey && /^Digit[1-9]$/.test(e.code)) {
+      tabs.pick(Number(e.code.slice(5)));
+      handled = true;
+    }
     if (handled) {
       e.preventDefault();
       e.stopPropagation();
@@ -311,28 +418,36 @@ window.addEventListener(
   { capture: true },
 );
 
-// ── start: restore the last session ──────────────────────
+// ── start: settings first, then restore the last session ─
 (async () => {
   const [, dirs, raw] = await Promise.all([
     document.fonts.load('14px "Commit Mono"').catch(() => {}),
     invoke<{ cli: string | null; home: string }>("initial_dir"),
     invoke<string | null>("session_load").catch(() => null),
   ]);
-  home = dirs.home;
-
   let saved: Saved | null = null;
   try {
     saved = raw ? (JSON.parse(raw) as Saved) : null;
   } catch {
     saved = null;
   }
-  if (saved?.sidebarW) document.documentElement.style.setProperty("--sidebar-w", `${saved.sidebarW}px`);
+  recent = saved?.recent ?? [];
+
+  // Settings before any terminal exists, so they all start in the right colours and font.
+  // A first settings.json takes over what older versions kept in the session.
+  await store.load({
+    theme: saved?.theme,
+    ide: saved?.ide ?? null,
+    voice: saved?.voice?.model
+      ? { model: saved.voice.model, microphone: saved.voice.mic ?? null, language: saved.voice.lang ?? null }
+      : undefined,
+  } as Partial<Settings>);
+  home = dirs.home;
+  if (store.value.effects.asciiLogo) showSplash();
+
+  if (saved?.sidebarW) root.style.setProperty("--sidebar-w", `${saved.sidebarW}px`);
   if (saved?.sidebarHidden) app.classList.add("no-sidebar");
-  if (saved?.editorH) document.documentElement.style.setProperty("--editor-h", `${saved.editorH}%`);
-  // Before any terminal is created, so they all start in the right colours.
-  applyTheme(saved?.theme === "light" ? "light" : "dark");
-  projectTools.ide = saved?.ide;
-  if (saved?.voice?.model) voice.settings = { ...voice.settings, ...saved.voice };
+  if (saved?.editorH) root.style.setProperty("--editor-h", `${saved.editorH}%`);
 
   const restore = saved?.tabs ?? [];
   const activeIdx = Math.min(Math.max(saved?.active ?? 0, 0), restore.length - 1);
@@ -353,6 +468,11 @@ window.addEventListener(
 
   // A folder passed on the command line opens its own Claude tab (unless one is already there).
   if (dirs.cli && !restore.some((t) => t.cwd === dirs.cli)) await tabs.open("claude", dirs.cli);
-  if (tabs.count === 0) await tabs.open("claude", dirs.cli ?? home);
+  // Nothing was open: the start screen (recent projects, open a folder).
+  if (tabs.count === 0) showStart();
   if (saved?.editorFile) await editor.open(saved.editorFile, { focus: false });
+
+  if (store.value.claude.installPrompt && !(await invoke<string | null>("claude_status").catch(() => "?"))) {
+    installScreen.show();
+  }
 })();

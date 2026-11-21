@@ -44,10 +44,37 @@ const LIGHT = {
 export type ThemeName = "dark" | "light";
 let theme = DARK;
 
-/** Switches every terminal (and the ones opened later) to the dark or light palette. */
-export function setTerminalTheme(name: ThemeName) {
-  theme = name === "light" ? LIGHT : DARK;
+/** Hex colour → rgba() with this opacity. */
+function alpha(hex: string, a: number) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+}
+
+/**
+ * Switches every terminal (and the ones opened later) to the dark or light palette. The cursor
+ * and selection take the accent colour, when one is given.
+ */
+export function setTerminalTheme(name: ThemeName, accent?: string) {
+  const base = name === "light" ? LIGHT : DARK;
+  theme = accent ? { ...base, cursor: accent, selectionBackground: alpha(accent, name === "light" ? 0.18 : 0.3) } : base;
   for (const s of live) s.term.options.theme = theme;
+}
+
+/** Font, history length and renderer for every terminal. */
+const look = { fontFamily: '"Commit Mono", "Cascadia Mono", Consolas, monospace', fontSize: 14, scrollback: 10_000, gpu: false };
+
+export function setTerminalOptions(o: { font: string; size: number; scrollback: number; gpu: boolean }) {
+  const family = `"${o.font.replace(/"/g, "")}", "Commit Mono", "Cascadia Mono", Consolas, monospace`;
+  const fontChanged = family !== look.fontFamily || o.size !== look.fontSize;
+  Object.assign(look, { fontFamily: family, fontSize: o.size, scrollback: o.scrollback, gpu: o.gpu });
+  for (const s of live) {
+    s.term.options.scrollback = o.scrollback;
+    if (fontChanged) {
+      s.term.options.fontFamily = family;
+      s.term.options.fontSize = o.size;
+      s.refit();
+    }
+  }
 }
 
 /** Size of the last terminal that was measured: a good guess for tabs not yet on screen. */
@@ -78,12 +105,12 @@ export class TermSession {
     onExit: () => void,
   ) {
     this.term = new Terminal({
-      fontFamily: '"Commit Mono", "Cascadia Mono", Consolas, monospace',
-      fontSize: 14,
+      fontFamily: look.fontFamily,
+      fontSize: look.fontSize,
       lineHeight: 1.2,
       cursorBlink: true,
       cursorStyle: "bar",
-      scrollback: 10_000,
+      scrollback: look.scrollback,
       allowProposedApi: true,
       theme,
     });
@@ -115,8 +142,8 @@ export class TermSession {
     this.term.open(this.host);
     // The DOM renderer is the default: with WebGL, the whole terminal blinked blank for a frame
     // whenever the layout changed under a held mouse button (WebView2 on integrated graphics).
-    // TODO stage 7: make the renderer a setting.
-    if (import.meta.env.VITE_WEBGL) try {
+    // settings.json "terminal.gpu" turns WebGL on for tabs opened afterwards.
+    if (look.gpu) try {
       const webgl = new WebglAddon();
       webgl.onContextLoss(() => webgl.dispose());
       this.term.loadAddon(webgl);

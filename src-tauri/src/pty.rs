@@ -43,13 +43,26 @@ const PARENT_SESSION_VARS: &[&str] = &[
 fn build_command(kind: &str) -> Result<CommandBuilder, String> {
     match kind {
         "claude" => {
-            let path = which::which("claude").map_err(|_| "claude-not-found".to_string())?;
-            Ok(CommandBuilder::new(path))
+            let path = crate::settings::find_claude().ok_or_else(|| "claude-not-found".to_string())?;
+            let mut cmd = CommandBuilder::new(path);
+            cmd.args(crate::settings::runtime().claude_args);
+            Ok(cmd)
         }
         _ => {
+            // A shell chosen in settings.json; PowerShell gets the UTF-8 set-up below.
+            if let Some(custom) = crate::settings::runtime().shell.filter(|s| !s.trim().is_empty()) {
+                let is_powershell = custom.to_lowercase().contains("powershell") || custom.to_lowercase().contains("pwsh");
+                if !is_powershell {
+                    return Ok(CommandBuilder::new(custom));
+                }
+            }
             #[cfg(windows)]
             {
-                let shell = which::which("pwsh")
+                let custom = crate::settings::runtime().shell.filter(|s| !s.trim().is_empty());
+                let shell = custom
+                    .map(|c| which::which(&c).unwrap_or_else(|_| c.into()))
+                    .map(Ok)
+                    .unwrap_or_else(|| which::which("pwsh"))
                     .or_else(|_| which::which("powershell"))
                     .map_err(|e| e.to_string())?;
                 let mut cmd = CommandBuilder::new(shell);

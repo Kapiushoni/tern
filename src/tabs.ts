@@ -1,6 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { TermSession, TermKind } from "./terminal";
 import { chime } from "./sound";
+import { t } from "./i18n";
 import { isImage, quotePath, imageTagsInInput } from "./attach";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -99,7 +100,8 @@ export class Tabs {
     el.title = cwd;
     el.innerHTML =
       `<span class="dot"></span><span class="kind"></span><span class="dir"></span>` +
-      `<button class="close" title="Close (Ctrl+W)" tabindex="-1">×</button>`;
+      `<button class="close" tabindex="-1">×</button>`;
+    el.querySelector<HTMLElement>(".close")!.title = t("Close (Ctrl+W)");
     el.querySelector(".kind")!.textContent = kind;
     el.querySelector(".dir")!.textContent = opts.label ?? baseName(cwd);
     this.strip.append(el);
@@ -188,10 +190,10 @@ export class Tabs {
         term.dispose();
         await this.spawn(tab);
         tab.term.term.write(
-          "\x1b[35mClaude Code not found.\x1b[0m Install it, then press Ctrl+` to open a Claude tab.\r\n\r\n",
+          `\x1b[35m${t("Claude Code not found.")}\x1b[0m ${t("Install it, then press Ctrl+` to open a Claude tab.")}\r\n\r\n`,
         );
       } else {
-        term.term.write(`\x1b[31mCould not start the terminal:\x1b[0m ${String(err)}\r\n`);
+        term.term.write(`\x1b[31m${t("Could not start the terminal:")}\x1b[0m ${String(err)}\r\n`);
       }
     }
   }

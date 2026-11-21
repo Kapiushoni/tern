@@ -3,6 +3,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { Terminal } from "@xterm/xterm";
 import type { Tabs } from "./tabs";
+import { t, tt } from "./i18n";
 
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|bmp|svg|ico|avif)$/i;
 export const isImage = (path: string) => IMAGE_EXT.test(path);
@@ -82,9 +83,9 @@ const PATH_RE = /"([A-Za-z]:[\\/][^"\r\n]+)"|([A-Za-z]:[\\/][^\s"'<>|*?]+)/g;
 const TAG_RE = /\[Image #(\d+)\]/g;
 
 function formatSize(n: number) {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(n < 10 * 1024 ? 1 : 0)} KB`;
-  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  if (n < 1024) return t("{n} B", { n });
+  if (n < 1024 * 1024) return t("{n} KB", { n: (n / 1024).toFixed(n < 10 * 1024 ? 1 : 0) });
+  return t("{n} MB", { n: (n / 1024 / 1024).toFixed(1) });
 }
 
 const PLUS = `<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>`;
@@ -118,7 +119,7 @@ export class Attachments {
 
     this.plus = document.createElement("button");
     this.plus.id = "btn-attach";
-    this.plus.title = "Attach files (Ctrl+Shift+A) — or paste / drop them";
+    tt(this.plus, "Attach files (Ctrl+Shift+A) — or paste / drop them");
     this.plus.tabIndex = -1;
     this.plus.innerHTML = PLUS;
     this.plus.addEventListener("mousedown", (e) => e.preventDefault());
@@ -312,13 +313,13 @@ export class Attachments {
     div("card-name", hit.label === name ? name : `${hit.label} · ${name}`);
     div(
       "card-meta",
-      [info.is_dir ? "folder" : formatSize(info.size), info.modified ? new Date(info.modified).toLocaleString() : ""]
+      [info.is_dir ? t("folder") : formatSize(info.size), info.modified ? new Date(info.modified).toLocaleString(document.documentElement.lang) : ""]
         .filter(Boolean)
         .join(" · "),
     );
     div("card-path", hit.path);
-    if (isImage(hit.path)) div("card-tip", "click to open");
-    else if (!info.is_dir) div("card-tip", "Ctrl+click to open in the editor");
+    if (isImage(hit.path)) div("card-tip", t("click to open"));
+    else if (!info.is_dir) div("card-tip", t("Ctrl+click to open in the editor"));
     this.card.replaceChildren(...parts);
     this.card.hidden = false;
 

@@ -7,6 +7,7 @@ mod preview;
 mod pty;
 mod search;
 mod session;
+mod settings;
 mod tools;
 mod voice;
 mod watch;
@@ -23,7 +24,6 @@ pub fn run() {
         .manage(preview::PreviewState::default())
         .setup(|app| {
             pty::allow_ctrl_c();
-            attach::cleanup_old_pastes();
             voice::init();
             let state = hooks::start(app.handle());
             app.manage(state);
@@ -51,6 +51,12 @@ pub fn run() {
             session::session_load,
             session::session_save,
             session::claude_session_exists,
+            settings::settings_path,
+            settings::settings_read,
+            settings::settings_write,
+            settings::settings_runtime,
+            settings::claude_status,
+            settings::claude_install_command,
             search::list_files,
             search::search_text,
             search::search_cancel,

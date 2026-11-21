@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "./toast";
+import { t } from "./i18n";
 
 interface Entry {
   name: string;
@@ -21,7 +22,7 @@ const ERRORS: Record<string, string> = {
   "invalid-name": "That name can't be used.",
   "into-itself": "A folder can't be moved into itself.",
 };
-const explain = (err: unknown) => ERRORS[String(err)] ?? String(err);
+const explain = (err: unknown) => (ERRORS[String(err)] ? t(ERRORS[String(err)]) : String(err));
 
 interface MenuItem {
   label: string;
@@ -281,25 +282,25 @@ export class FileTree {
     const isDir = !row || row.classList.contains("dir");
     const dir = isDir ? path : parentOf(path);
     const items: (MenuItem | null)[] = [];
-    if (row && !isDir) items.push({ label: "Open", run: () => this.onOpen(path) });
-    if (row) items.push({ label: `Ask Claude about this ${isDir ? "folder" : "file"}`, run: () => this.onAskClaude(path) });
+    if (row && !isDir) items.push({ label: t("Open"), run: () => this.onOpen(path) });
+    if (row) items.push({ label: isDir ? t("Ask Claude about this folder") : t("Ask Claude about this file"), run: () => this.onAskClaude(path) });
     if (row) items.push(null);
     items.push(
-      { label: "New file", run: () => this.startCreate(dir, false) },
-      { label: "New folder", run: () => this.startCreate(dir, true) },
+      { label: t("New file"), run: () => this.startCreate(dir, false) },
+      { label: t("New folder"), run: () => this.startCreate(dir, true) },
     );
     if (row) {
       items.push(
-        { label: "Rename", hint: "F2", run: () => this.startRename(row) },
-        { label: "Delete", hint: "Del", run: () => this.trash(path) },
+        { label: t("Rename"), hint: "F2", run: () => this.startRename(row) },
+        { label: t("Delete"), hint: "Del", run: () => this.trash(path) },
       );
     }
     items.push(
       null,
-      { label: "Copy path", run: () => this.copy(path) },
-      { label: "Copy relative path", run: () => this.copy(this.relative(path)) },
-      { label: "Open in Explorer", run: () => invoke("reveal_entry", { path }).catch((err) => toast(explain(err))) },
-      { label: "Open in IDE", run: () => this.onOpenInIde(path) },
+      { label: t("Copy path"), run: () => this.copy(path) },
+      { label: t("Copy relative path"), run: () => this.copy(this.relative(path)) },
+      { label: t("Open in Explorer"), run: () => invoke("reveal_entry", { path }).catch((err) => toast(explain(err))) },
+      { label: t("Open in IDE"), run: () => this.onOpenInIde(path) },
     );
     this.showMenu(items, e.clientX, e.clientY);
   }
@@ -342,8 +343,8 @@ export class FileTree {
 
   private copy(text: string) {
     navigator.clipboard.writeText(text).then(
-      () => toast(`Copied: ${text}`),
-      () => toast("Could not copy"),
+      () => toast(t("Copied: {text}", { text })),
+      () => toast(t("Could not copy")),
     );
   }
 
@@ -425,7 +426,7 @@ export class FileTree {
   private async trash(path: string) {
     try {
       await invoke("trash_entry", { path });
-      toast(`Moved to the Recycle Bin: ${baseName(path)}`);
+      toast(t("Moved to the Recycle Bin: {name}", { name: baseName(path) }));
       if (this.selectedPath === path) this.selectedPath = null;
       this.refreshSoon();
     } catch (err) {

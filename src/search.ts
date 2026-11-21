@@ -1,4 +1,5 @@
 import { invoke, Channel } from "@tauri-apps/api/core";
+import { plural, t, translateTree } from "./i18n";
 
 /**
  * Ctrl+Shift+F: search the text of every file in the project (ripgrep's engine in Rust). Lives in
@@ -39,16 +40,17 @@ export class Search {
   constructor(private el: HTMLElement) {
     el.innerHTML =
       `<div class="sr-head">` +
-      `<span class="sr-title">search</span>` +
-      `<button class="icon-btn sr-close" title="Back to files (Esc)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>` +
+      `<span class="sr-title" data-i18n="search"></span>` +
+      `<button class="icon-btn sr-close" data-i18n-title="Back to files (Esc)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>` +
       `</div>` +
       `<div class="sr-box">` +
-      `<input type="text" spellcheck="false" autocomplete="off" placeholder="Search in files" />` +
-      `<button class="sr-opt" data-opt="case" title="Match case" aria-pressed="false">Aa</button>` +
-      `<button class="sr-opt" data-opt="regex" title="Regular expression" aria-pressed="false">.*</button>` +
+      `<input type="text" spellcheck="false" autocomplete="off" data-i18n-ph="Search in files" />` +
+      `<button class="sr-opt" data-opt="case" data-i18n-title="Match case" aria-pressed="false">Aa</button>` +
+      `<button class="sr-opt" data-opt="regex" data-i18n-title="Regular expression" aria-pressed="false">.*</button>` +
       `</div>` +
       `<div class="sr-status"></div>` +
       `<div class="sr-results"></div>`;
+    translateTree(el);
     this.input = el.querySelector("input")!;
     this.caseBtn = el.querySelector('[data-opt="case"]')!;
     this.regexBtn = el.querySelector('[data-opt="regex"]')!;
@@ -149,7 +151,7 @@ export class Search {
       invoke("search_cancel").catch(() => {});
       return;
     }
-    this.status.textContent = "searching…";
+    this.status.textContent = t("searching…");
     this.status.classList.remove("error");
     const events = new Channel<Event>();
     events.onmessage = (e) => {
@@ -159,10 +161,9 @@ export class Search {
         this.status.textContent = e.message;
         this.status.classList.add("error");
       } else {
-        const n = (v: number, w: string) => `${v} ${w}${v === 1 ? "" : "s"}`;
         this.status.textContent = e.hits
-          ? `${n(e.hits, "result")} in ${n(e.files, "file")}${e.truncated ? " (stopped at the first 5000)" : ""}`
-          : "No results";
+          ? counts(e.hits, e.files) + (e.truncated ? " " + t("(stopped at the first 5000)") : "")
+          : t("No results");
       }
     };
     invoke("search_text", {
@@ -180,7 +181,7 @@ export class Search {
   private addFile(path: string, rel: string, hits: Hit[]) {
     this.files++;
     this.hits += hits.length;
-    this.status.textContent = `${this.hits} results in ${this.files} files…`;
+    this.status.textContent = counts(this.hits, this.files) + "…";
     const file = document.createElement("div");
     file.className = "sr-file";
     file.dataset.path = path;
@@ -221,4 +222,11 @@ export class Search {
     const after = [...this.results.children].find((c) => (c.firstElementChild as HTMLElement).title > rel);
     this.results.insertBefore(file, after ?? null);
   }
+}
+
+/** "12 results in 3 files", in the interface language. */
+function counts(hits: number, files: number) {
+  const r = plural(hits, { one: t("{n} result"), few: t("{n} results (few)"), many: t("{n} results (many)"), other: t("{n} results") });
+  const f = plural(files, { one: t("in {n} file"), few: t("in {n} files (few)"), many: t("in {n} files (many)"), other: t("in {n} files") });
+  return `${r.replace("{n}", String(hits))} ${f.replace("{n}", String(files))}`;
 }

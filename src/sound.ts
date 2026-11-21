@@ -1,13 +1,25 @@
 // A very soft two-note chime, synthesized (no audio files, nothing loaded until first use).
 
 let ctx: AudioContext | null = null;
+let enabled = true;
+/** 0..100 from settings; 20 matches the original quiet level. */
+let level = 20;
 
-export function chime(volume = 0.05) {
+export function setSound(on: boolean, volume: number) {
+  enabled = on;
+  level = volume;
+}
+
+/** The chime when Claude finishes; `volume` overrides the setting (for the settings preview). */
+export function chime(volume?: number) {
+  if (volume === undefined && !enabled) return;
+  const v = ((volume ?? level) / 20) * 0.05;
+  if (v <= 0) return;
   try {
     ctx ??= new AudioContext();
     const now = ctx.currentTime;
     const master = ctx.createGain();
-    master.gain.value = volume;
+    master.gain.value = Math.min(v, 0.25);
     master.connect(ctx.destination);
     // Two gentle sine notes (E6 then A5), each with a soft attack and a long fade.
     [

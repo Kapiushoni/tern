@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { t, translateTree } from "./i18n";
 
 /**
  * Ctrl+P: find a file by name with a fuzzy match ("tvrnidx" finds tavern/index.html).
@@ -34,9 +35,10 @@ export class QuickOpen {
     this.el.id = "quick-open";
     this.el.hidden = true;
     this.el.innerHTML =
-      `<input type="text" spellcheck="false" autocomplete="off" placeholder="Go to file…" />` +
+      `<input type="text" spellcheck="false" autocomplete="off" data-i18n-ph="Go to file…" />` +
       `<div class="qo-list" role="listbox"></div>` +
-      `<div class="qo-hint"><kbd>Enter</kbd> open · <kbd>Shift+Enter</kbd> ask Claude · <kbd>Esc</kbd> close</div>`;
+      `<div class="qo-hint"><kbd>Enter</kbd> <span data-i18n="open"></span> · <kbd>Shift+Enter</kbd> <span data-i18n="ask Claude"></span> · <kbd>Esc</kbd> <span data-i18n="close"></span></div>`;
+    translateTree(this.el);
     document.body.append(this.el);
     this.input = this.el.querySelector("input")!;
     this.list = this.el.querySelector(".qo-list")!;
@@ -106,7 +108,7 @@ export class QuickOpen {
     if (!this.matches.length) {
       const empty = document.createElement("div");
       empty.className = "qo-empty";
-      empty.textContent = total ? "No matching files" : "No files";
+      empty.textContent = total ? t("No matching files") : t("No files");
       this.list.append(empty);
       return;
     }

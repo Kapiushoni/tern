@@ -25,7 +25,10 @@ pub(crate) fn project_walker(root: &Path) -> WalkBuilder {
         .git_exclude(true)
         .require_git(false)
         .parents(true)
-        .filter_entry(|d| !SERVICE_DIRS.contains(&d.file_name().to_string_lossy().as_ref()));
+        .filter_entry({
+            let hidden = crate::settings::hidden_folders();
+            move |d| !hidden.iter().any(|h| *h == d.file_name().to_string_lossy())
+        });
     w
 }
 
@@ -47,6 +50,7 @@ pub fn list_dir(path: String, show_hidden: bool) -> Result<Vec<Entry>, String> {
         return Err(format!("not a folder: {path}"));
     }
 
+    let hidden = crate::settings::hidden_folders();
     let visible: Vec<Entry> = WalkBuilder::new(&root)
         .max_depth(Some(1))
         .hidden(false) // dotfiles like .env stay visible unless gitignored
@@ -58,7 +62,7 @@ pub fn list_dir(path: String, show_hidden: bool) -> Result<Vec<Entry>, String> {
         .build()
         .filter_map(Result::ok)
         .filter(|d| d.depth() == 1)
-        .filter(|d| !SERVICE_DIRS.contains(&d.file_name().to_string_lossy().as_ref()))
+        .filter(|d| !hidden.iter().any(|h| *h == d.file_name().to_string_lossy()))
         .map(|d| {
             to_entry(
                 d.path(),
