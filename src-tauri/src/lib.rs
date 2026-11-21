@@ -4,6 +4,7 @@ mod fs;
 mod git;
 mod hooks;
 mod preview;
+mod plugins;
 mod pty;
 mod search;
 mod session;
@@ -63,6 +64,19 @@ pub fn run() {
             search::search_text,
             search::search_cancel,
             preview::preview_url,
+            plugins::plugins_list,
+            plugins::plugins_dir_path,
+            plugins::plugin_file,
+            plugins::plugin_remove,
+            plugins::plugin_data_load,
+            plugins::plugin_data_save,
+            plugins::plugin_catalog,
+            plugins::plugin_install,
+            plugins::plugin_fs_read,
+            plugins::plugin_fs_write,
+            plugins::plugin_fs_list,
+            plugins::plugin_run,
+            plugins::plugin_fetch,
             tools::ide_list,
             tools::ide_open,
             tools::run_detect,

@@ -9,7 +9,7 @@ import { invoke } from "@tauri-apps/api/core";
 export type Lang = "en" | "ru" | "uk";
 export type Action =
   | "voice" | "newClaude" | "newShell" | "closeTab" | "nextTab" | "prevTab" | "toggleTree"
-  | "goToFile" | "searchFiles" | "attach" | "settings";
+  | "goToFile" | "searchFiles" | "attach" | "settings" | "toggleTiling";
 
 export interface Settings {
   language: Lang;
@@ -56,6 +56,7 @@ export const DEFAULTS: Settings = {
     searchFiles: "Ctrl+Shift+F",
     attach: "Ctrl+Shift+A",
     settings: "Ctrl+,",
+    toggleTiling: "Ctrl+Shift+G",
   },
   colors: { dark: {}, light: {} },
 };

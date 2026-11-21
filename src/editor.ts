@@ -45,6 +45,8 @@ export class Editor {
 
   /** Opened, closed or saved: the session remembers the open file. */
   onChange: () => void = () => {};
+  /** Saved by the user (for plugins). */
+  onSaved: (path: string) => void = () => {};
   /** The folder an HTML preview is served from (its project), for root-relative links. */
   previewRoot: (path: string) => string = (p) => p.replace(/[\\/][^\\/]*$/, "");
   /** The folder the HTML preview serves, while one is shown. */
@@ -238,6 +240,7 @@ export class Editor {
       this.savedText = text;
       this.setDirty(this.code.text() !== text);
       this.onChange();
+      this.onSaved(this.path);
       return true;
     } catch (err) {
       if (String(err) === "changed-on-disk") {
@@ -344,6 +347,8 @@ export class Editor {
   private setDirty(on: boolean) {
     this.dirty = on;
     this.panel.classList.toggle("dirty", on);
+    // The header can be a window's title bar, outside the panel, in window mode.
+    this.head.classList.toggle("dirty", on);
   }
 
   private ask(text: string, choices: [string, string][]): Promise<string> {

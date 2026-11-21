@@ -54,9 +54,11 @@ function alpha(hex: string, a: number) {
  * Switches every terminal (and the ones opened later) to the dark or light palette. The cursor
  * and selection take the accent colour, when one is given.
  */
-export function setTerminalTheme(name: ThemeName, accent?: string) {
+export function setTerminalTheme(name: ThemeName, accent?: string, extra: Record<string, string> = {}) {
   const base = name === "light" ? LIGHT : DARK;
-  theme = accent ? { ...base, cursor: accent, selectionBackground: alpha(accent, name === "light" ? 0.18 : 0.3) } : base;
+  theme = accent ? { ...base, cursor: accent, selectionBackground: alpha(accent, name === "light" ? 0.18 : 0.3) } : { ...base };
+  // Colours from theme plugins (xterm's names: background, red, brightGreen…).
+  theme = { ...theme, ...extra };
   for (const s of live) s.term.options.theme = theme;
 }
 

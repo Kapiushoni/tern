@@ -1,0 +1,14 @@
+{
+  "name": "Telegram notify",
+  "version": "1.0.0",
+  "description": "A Telegram message when Claude finishes a task or waits for your answer while you are away from Tern.",
+  "author": "Tern",
+  "main": "main.js",
+  "permissions": ["network:api.telegram.org"],
+  "settings": [
+    { "key": "token", "label": "Bot token", "type": "password", "description": "Create a bot with @BotFather in Telegram and paste its token here." },
+    { "key": "chat", "label": "Chat id", "type": "text", "description": "Your chat id: send any message to @userinfobot to see it. Then write /start to your bot once." },
+    { "key": "onlyAway", "label": "Only when I'm away", "type": "checkbox", "default": true, "description": "Skip the message if you are looking at that tab in Tern." },
+    { "key": "waiting", "label": "Also when Claude waits for me", "type": "checkbox", "default": true }
+  ]
+}

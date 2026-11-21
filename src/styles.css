@@ -1011,3 +1011,224 @@ body.resizing-y, body.resizing-y * { cursor: row-resize !important; }
 #update-card button { padding: 4px 12px; border: 1px solid var(--line); border-radius: 4px; background: none; color: var(--fg); cursor: pointer; }
 #update-card button.primary { border-color: var(--accent); background: var(--accent-soft); }
 #update-card button:disabled { opacity: 0.5; cursor: default; }
+
+/* ── title bar: window buttons in the tab row ── */
+#win-controls { display: flex; align-self: stretch; flex: none; margin-left: 4px; }
+#win-controls .wc {
+  width: 46px;
+  display: grid; place-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fg2);
+  cursor: default;
+  transition: background 0.1s, color 0.1s;
+}
+#win-controls .wc svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1; shape-rendering: crispEdges; }
+#win-controls .wc:hover { background: var(--hover); color: var(--fg); }
+#win-controls .wc-close:hover { background: #e81123; color: #fff; }
+#win-controls .i-restore { display: none; }
+:root.maximized #win-controls .i-max { display: none; }
+:root.maximized #win-controls .i-restore { display: block; }
+:root.mac #win-controls { display: none; }
+/* Room for the macOS traffic lights. */
+:root.mac #tabbar { padding-left: 76px; }
+#tabbar { user-select: none; -webkit-user-select: none; }
+
+/* ── file type icons in the tree (Material Icon Theme) ── */
+.ficon { flex: none; width: 16px; height: 16px; margin-left: -2px; }
+.node.hidden-entry .ficon { opacity: 0.45; }
+/* Every button in the tab row sits on the same centre line as the window buttons. */
+#tabbar > .icon-btn { align-self: center; flex: none; }
+#btn-run, #btn-ide, #btn-settings { margin: 0 1px; }
+
+/* ── window mode: tabs as movable, resizable windows inside the terminal area ── */
+#btn-tile[aria-pressed="true"] { color: var(--accent); }
+:root { --tile-backdrop: #060508; }
+:root[data-theme="light"] { --tile-backdrop: #e4dfe9; }
+/* The space between windows: a darker backdrop, like a desktop. */
+#panes.tiled { background: var(--tile-backdrop); overflow: hidden; }
+#panes.tiled .pane { inset: auto; }
+
+.win-frame {
+  position: absolute;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.win-frame.active { border-color: var(--accent); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), var(--glow); }
+.win-bar {
+  height: 24px;
+  display: flex; align-items: center; gap: 6px;
+  padding: 0 4px 0 10px;
+  border-bottom: 1px solid var(--line);
+  border-radius: 6px 6px 0 0;
+  background: var(--panel);
+  color: var(--dim);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: grab;
+  user-select: none;
+}
+.win-frame.active .win-bar { color: var(--fg); }
+.win-kind { color: var(--accent); }
+.win-frame.shell .win-kind { color: var(--dim); }
+.win-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.win-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); flex: none; }
+.win-frame.active .win-dot { background: var(--accent); box-shadow: var(--glow); }
+.win-close {
+  width: 20px; height: 18px;
+  padding: 0; border: 0; border-radius: 3px;
+  background: none; color: var(--dim);
+  font-size: 14px; line-height: 1;
+  cursor: pointer;
+}
+.win-close:hover { background: #e81123; color: #fff; }
+
+/* Resize handles along every edge and corner (invisible, just wider than the border). */
+.win-edge { position: absolute; z-index: 2; }
+.win-edge.n, .win-edge.s { left: 8px; right: 8px; height: 8px; cursor: ns-resize; }
+.win-edge.n { top: -4px; }
+.win-edge.s { bottom: -4px; }
+.win-edge.e, .win-edge.w { top: 8px; bottom: 8px; width: 8px; cursor: ew-resize; }
+.win-edge.e { right: -4px; }
+.win-edge.w { left: -4px; }
+.win-edge.ne, .win-edge.nw, .win-edge.se, .win-edge.sw { width: 12px; height: 12px; }
+.win-edge.ne { top: -4px; right: -4px; cursor: nesw-resize; }
+.win-edge.sw { bottom: -4px; left: -4px; cursor: nesw-resize; }
+.win-edge.nw { top: -4px; left: -4px; cursor: nwse-resize; }
+.win-edge.se { bottom: -4px; right: -4px; cursor: nwse-resize; }
+
+/* The outline that shows the new size while resizing. */
+.win-ghost {
+  position: absolute;
+  z-index: 9999;
+  border: 1px dashed var(--accent);
+  border-radius: 6px;
+  background: var(--accent-soft);
+  pointer-events: none;
+}
+body.win-moving, body.win-moving * { cursor: grabbing !important; user-select: none; }
+body[data-win-resize="n"] *, body[data-win-resize="s"] * { cursor: ns-resize !important; }
+body[data-win-resize="e"] *, body[data-win-resize="w"] * { cursor: ew-resize !important; }
+body[data-win-resize="ne"] *, body[data-win-resize="sw"] * { cursor: nesw-resize !important; }
+body[data-win-resize="nw"] *, body[data-win-resize="se"] * { cursor: nwse-resize !important; }
+/* Above the windows (they stack from z-index 10 up). */
+#panes.tiled #prompt-tools { z-index: 5000; }
+#voice-pill, #terminal-host.listening::after { z-index: 5001; }
+/* The editor as a window: its header is the title bar; no splitter above the terminals. */
+#app.windows #editor-split { display: none !important; }
+#panes.tiled #editor { position: absolute; height: auto; border: 0; }
+.ed-head.win-bar { height: 24px; gap: 6px; padding: 0 4px 0 10px; font-size: 12px; }
+.ed-head.win-bar .ed-close { width: 20px; height: 18px; }
+.ed-head.dirty .ed-dot { background: var(--accent); box-shadow: var(--glow); }
+
+/* ── plugins ──────────────────────────── */
+#plugin-buttons { display: flex; align-items: center; gap: 2px; align-self: center; }
+.plugin-btn.text-icon { font-size: 13px; line-height: 1; }
+.plugin-frame { display: none; }
+
+#plugins {
+  position: fixed; inset: 0;
+  z-index: 81;
+  display: grid; place-items: center;
+  background: rgba(0, 0, 0, 0.45);
+  padding: 16px;
+}
+#plugins[hidden] { display: none; }
+.pl-panel {
+  position: relative;
+  width: min(700px, 100%);
+  height: min(560px, calc(100vh - 32px));
+  display: flex; flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow), 0 0 0 1px var(--accent-soft);
+  outline: none;
+}
+.pl-head { display: flex; align-items: center; gap: 16px; padding: 10px 12px 10px 18px; border-bottom: 1px solid var(--line); }
+.pl-title { color: var(--accent); letter-spacing: 0.06em; }
+.pl-tabs { display: flex; gap: 4px; flex: 1; }
+.pl-tabs button { padding: 3px 12px; border: 1px solid transparent; border-radius: 4px; background: none; color: var(--dim); cursor: pointer; }
+.pl-tabs button.on { border-color: var(--line); background: var(--bg); color: var(--fg); }
+.pl-close { font-size: 18px; line-height: 1; }
+.pl-body { flex: 1; overflow: auto; padding: 6px 18px; }
+.pl-empty { display: block; padding: 24px 0; color: var(--dim); text-align: center; line-height: 1.5; }
+.pl-row { display: flex; align-items: center; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.pl-info { flex: 1; min-width: 0; }
+.pl-name { color: var(--fg); }
+.pl-ver { color: var(--faint); font-size: 11px; }
+.pl-desc { color: var(--dim); font-size: 12px; line-height: 1.45; margin-top: 2px; }
+.pl-desc.error, .pl-warn { color: var(--git-conflict); }
+.pl-warn { display: block; font-size: 12px; margin-top: 3px; }
+.pl-actions { display: flex; align-items: center; gap: 10px; flex: none; }
+.pl-switch { display: flex; align-items: center; gap: 5px; cursor: pointer; color: var(--fg2); }
+.pl-switch input { accent-color: var(--accent); }
+.pl-link { padding: 0; border: 0; background: none; color: var(--dim); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.pl-link:hover { color: var(--accent); }
+.pl-link.danger:hover { color: var(--git-conflict); }
+.pl-btn { padding: 4px 12px; border: 1px solid var(--line); border-radius: 4px; background: none; color: var(--fg); cursor: pointer; white-space: nowrap; }
+.pl-btn:hover { border-color: var(--fg2); }
+.pl-btn.primary { border-color: var(--accent); background: var(--accent-soft); }
+.pl-btn:disabled { opacity: 0.5; cursor: default; }
+.pl-settings { padding: 8px 12px 12px; margin: 0 0 4px; background: var(--bg); border: 1px solid var(--line); border-top: 0; border-radius: 0 0 6px 6px; }
+.pl-field { display: grid; grid-template-columns: 160px 1fr; align-items: center; gap: 4px 12px; padding: 4px 0; }
+.pl-field label { color: var(--fg2); font-size: 12px; }
+.pl-field input:not([type="checkbox"]), .pl-field select {
+  padding: 4px 6px; border: 1px solid var(--line); border-radius: 4px;
+  background: var(--panel); color: var(--fg); font: inherit; font-size: 12px; outline: none;
+}
+.pl-field input:focus, .pl-field select:focus { border-color: var(--accent); }
+.pl-field input[type="checkbox"] { justify-self: start; accent-color: var(--accent); }
+.pl-hint { grid-column: 2; color: var(--faint); font-size: 11px; line-height: 1.4; }
+.pl-foot { display: flex; align-items: center; gap: 8px; padding: 10px 18px; border-top: 1px solid var(--line); }
+.pl-note { flex: 1; color: var(--faint); font-size: 12px; }
+
+.pl-dialog { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(0, 0, 0, 0.4); z-index: 2; }
+.pl-dialog-box {
+  width: min(420px, calc(100% - 32px));
+  padding: 16px 18px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--accent);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+}
+.pl-dialog-title { color: var(--fg); margin-bottom: 8px; }
+.pl-dialog-box ul { margin: 0 0 10px; padding-left: 18px; color: var(--fg2); line-height: 1.6; }
+.pl-dialog-box .pl-hint { display: block; margin-bottom: 12px; }
+.pl-dialog-buttons { display: flex; gap: 8px; }
+
+/* A plugin's own window, floating over the terminal area. */
+.plugin-window {
+  position: absolute;
+  z-index: 6000;
+  display: flex; flex-direction: column;
+  min-width: 200px; min-height: 120px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+  resize: both;
+  overflow: hidden;
+}
+.plugin-window:focus-within { border-color: var(--accent); box-shadow: var(--shadow), var(--glow); }
+.pw-bar {
+  display: flex; align-items: center; gap: 6px;
+  height: 26px; flex: none;
+  padding: 0 4px 0 10px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  color: var(--fg2);
+  font-size: 12px;
+  cursor: grab;
+  user-select: none;
+}
+.pw-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pw-close { width: 20px; height: 18px; padding: 0; border: 0; border-radius: 3px; background: none; color: var(--dim); font-size: 14px; cursor: pointer; }
+.pw-close:hover { background: #e81123; color: #fff; }
+.plugin-window iframe { flex: 1; width: 100%; border: 0; background: var(--bg); }
+.plugin-window.moving iframe { pointer-events: none; }

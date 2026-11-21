@@ -3,6 +3,14 @@ import { TermSession, TermKind } from "./terminal";
 import { chime } from "./sound";
 import { t } from "./i18n";
 import { isImage, quotePath, imageTagsInInput } from "./attach";
+import { Tiler, Rect, Tile } from "./tiling";
+
+/** A window that isn't a terminal tab (the editor), shown in window mode next to the tabs. */
+export interface ExtraWindow {
+  tile: () => Tile | null;
+  focus: () => void;
+  close: () => void;
+}
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -18,6 +26,8 @@ export interface SavedTab {
   continue?: boolean;
   /** Which file each "[Image #N]" tag in this Claude session stands for. */
   images?: Record<number, string>;
+  /** Where its window was in window mode (fractions of the terminal area). */
+  win?: Rect;
 }
 
 interface Tab extends SavedTab {
@@ -42,12 +52,16 @@ const newKey = () => `${Date.now().toString(36)}-${(keySeq++).toString(36)}`;
 export class Tabs {
   private tabs: Tab[] = [];
   private active: Tab | null = null;
+  private tiler: Tiler;
+  private tiled = false;
 
   /** Fired when the active tab changes (or the last one closes) and when tabs change at all. */
   onActivate: (cwd: string | null) => void = () => {};
   onChange: () => void = () => {};
   /** Fired when the active tab changes or its terminal is replaced. */
   onTerm: () => void = () => {};
+  /** Events for plugins: "claude:working", "claude:done", "claude:waiting", "tab:open", "tab:close", "tab:switch". */
+  onEvent: (name: string, data: Record<string, unknown>) => void = () => {};
 
   constructor(
     private strip: HTMLElement,
@@ -62,6 +76,19 @@ export class Tabs {
       if (t) this.close(t);
     });
     strip.addEventListener("mousedown", (e) => e.button === 1 && e.preventDefault());
+    this.tiler = new Tiler(host);
+    this.tiler.onChange = () => this.onChange();
+    this.tiler.onClose = (key) => {
+      const t = this.tabs.find((x) => x.key === key);
+      if (t) this.close(t);
+      else this.extras.get(key)?.close();
+    };
+    this.tiler.onFocus = (key) => {
+      const t = this.tabs.find((x) => x.key === key);
+      if (t && t !== this.active) this.activate(t);
+      else if (!t) this.focusExtra(key);
+    };
+
     strip.addEventListener("click", (e) => {
       const t = this.fromEl(e.target);
       if (!t) return;
@@ -82,6 +109,7 @@ export class Tabs {
         sessionId: t.kind === "claude" && t.used ? t.sessionId : undefined,
         continue: t.kind === "claude" && t.used && !t.sessionId ? true : undefined,
         images: t.kind === "claude" && Object.keys(t.images).length ? t.images : undefined,
+        win: this.tiler.saved.get(t.key),
       })),
       active: this.active ? this.tabs.indexOf(this.active) : 0,
     };
@@ -91,7 +119,7 @@ export class Tabs {
   async open(
     kind: TermKind,
     cwd: string,
-    opts: { resume?: string; focus?: boolean; images?: Record<number, string>; run?: string; label?: string } = {},
+    opts: { resume?: string; focus?: boolean; images?: Record<number, string>; run?: string; label?: string; win?: Rect } = {},
   ) {
     const key = newKey();
     const el = document.createElement("div");
@@ -122,10 +150,26 @@ export class Tabs {
       term: null!,
     };
     this.tabs.push(tab);
+    this.tiler.setRect(key, opts.win);
+    // In window mode a click anywhere in a window makes it the active tab; Alt+drag moves it.
+    pane.addEventListener(
+      "pointerdown",
+      (e) => {
+        if (!this.tiled) return;
+        if (e.altKey && e.button === 0) {
+          e.stopPropagation();
+          this.tiler.startMove(tab.key, e);
+        } else if (this.active !== tab || this.focusedExtra) this.activate(tab);
+      },
+      true,
+    );
     if (opts.focus !== false || !this.active) this.activate(tab);
+    else this.relayout();
     await this.spawn(tab, opts.resume);
+    this.relayout();
     // The shell reads it as soon as its prompt is up (ConPTY holds the input until then).
     if (opts.run) tab.term.send(opts.run + "\r");
+    this.onEvent("tab:open", { kind: tab.kind, project: tab.cwd });
     this.onChange();
   }
 
@@ -275,14 +319,22 @@ export class Tabs {
   }
 
   activate(tab: Tab) {
-    if (this.active === tab) return tab.term?.focus();
+    if (this.active === tab) {
+      if (this.focusedExtra) {
+        this.focusedExtra = null;
+        this.relayout();
+      }
+      return tab.term?.focus();
+    }
     if (this.active) {
       this.active.el.classList.remove("active");
-      this.active.pane.hidden = true;
+      if (!this.tiled) this.active.pane.hidden = true;
     }
     this.active = tab;
+    this.focusedExtra = null;
     tab.el.classList.add("active");
     tab.pane.hidden = false;
+    this.relayout();
     tab.el.scrollIntoView({ block: "nearest", inline: "nearest" });
     // The pane was hidden, so its size may be stale.
     requestAnimationFrame(() => {
@@ -291,6 +343,7 @@ export class Tabs {
     });
     this.onActivate(tab.cwd);
     this.onTerm();
+    this.onEvent("tab:switch", { kind: tab.kind, project: tab.cwd });
     this.onChange();
   }
 
@@ -301,6 +354,8 @@ export class Tabs {
     tab.term?.dispose();
     tab.el.remove();
     tab.pane.remove();
+    this.onEvent("tab:close", { kind: tab.kind, project: tab.cwd });
+    this.relayout();
     if (this.active === tab) {
       this.active = null;
       const next = this.tabs[Math.min(i, this.tabs.length - 1)];
@@ -340,6 +395,74 @@ export class Tabs {
     tab.el.dataset.activity = a;
   }
 
+  // ── tiling mode ───────────────────────────────────────
+
+  get isTiled() {
+    return this.tiled;
+  }
+
+  /** Every tab on screen at once (tiles), or back to one tab at a time. */
+  setTiled(on: boolean) {
+    if (on === this.tiled) return;
+    this.tiled = on;
+    this.host.classList.toggle("tiled", on);
+    if (on) this.relayout();
+    else {
+      this.tiler.reset(this.tabs.map((t) => t.pane));
+      for (const t of this.tabs) {
+        t.pane.hidden = t !== this.active;
+        t.pane.classList.remove("active-tile");
+      }
+    }
+    requestAnimationFrame(() => {
+      for (const t of this.tabs) t.term?.refit();
+      this.active?.term?.focus();
+    });
+    this.onTerm();
+    this.onChange();
+  }
+
+  /** Other windows (the editor) by key. */
+  private extras = new Map<string, ExtraWindow>();
+  /** An extra window that has the focus instead of the active tab. */
+  private focusedExtra: string | null = null;
+
+  addWindow(key: string, w: ExtraWindow) {
+    this.extras.set(key, w);
+  }
+
+  /** An extra window was clicked or opened: it becomes the one in front. */
+  focusExtra(key: string) {
+    if (!this.extras.has(key)) return;
+    this.focusedExtra = key;
+    this.relayout();
+    this.extras.get(key)!.focus();
+  }
+
+  /** Re-reads the windows (an extra one opened, closed or changed). */
+  refreshWindows() {
+    if (this.focusedExtra && !this.extras.get(this.focusedExtra)?.tile()) this.focusedExtra = null;
+    this.relayout();
+  }
+
+  private relayout() {
+    if (!this.tiled) return;
+    const tiles: Tile[] = this.tabs.map((t) => ({
+      key: t.key,
+      pane: t.pane,
+      kind: t.kind,
+      label: t.el.querySelector(".dir")?.textContent ?? baseName(t.cwd),
+      active: !this.focusedExtra && t === this.active,
+    }));
+    for (const [key, w] of this.extras) {
+      const tile = w.tile();
+      if (tile) tiles.push({ ...tile, key, active: this.focusedExtra === key });
+    }
+    this.tiler.layout(tiles);
+  }
+
+
+
   private onHook(key: string, event: string, sessionId: string | null) {
     const tab = this.tabs.find((t) => t.key === key);
     if (!tab) return;
@@ -356,10 +479,14 @@ export class Tabs {
           this.onChange();
         }
         this.setActivity(tab, "working");
+        this.onEvent("claude:working", { project: tab.cwd });
         break;
       case "Stop":
         tab.awaitingAnswer = false;
-        if (tab.activity === "working" && unseen) chime();
+        if (tab.activity === "working") {
+          if (unseen) chime();
+          this.onEvent("claude:done", { project: tab.cwd, seen: !unseen });
+        }
         this.setActivity(tab, "done");
         break;
       case "Notification":
@@ -368,6 +495,7 @@ export class Tabs {
           tab.awaitingAnswer = true;
           if (unseen) chime();
           this.setActivity(tab, "done");
+          this.onEvent("claude:waiting", { project: tab.cwd, seen: !unseen });
         }
         break;
     }

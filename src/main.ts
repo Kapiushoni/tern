@@ -19,6 +19,9 @@ import { InstallScreen, showSplash, StartScreen } from "./screens";
 import { setSound } from "./sound";
 import { setTypewriter, toast } from "./toast";
 import { startUpdateChecks } from "./updates";
+import { repaintIcons } from "./fileicons";
+import { PluginHost } from "./plugins";
+import { PluginsWindow } from "./pluginsui";
 
 const app = document.getElementById("app")!;
 const root = document.documentElement;
@@ -46,6 +49,8 @@ const projectTools = new ProjectTools(tabs, document.getElementById("btn-run")!,
 const settingsWindow = new SettingsWindow(store);
 const startScreen = new StartScreen(panes);
 const installScreen = new InstallScreen(termHost);
+const plugins = new PluginHost(document.getElementById("btn-tile")!, termHost);
+const pluginsWindow = new PluginsWindow(plugins);
 
 const projectRoot = () => tree.root || null;
 quickOpen.getRoot = projectRoot;
@@ -93,6 +98,8 @@ interface Saved {
   editorH?: number;
   /** Project folders, most recent first, for the start screen. */
   recent?: string[];
+  /** All tabs shown as tiles. */
+  tiled?: boolean;
   // Older versions kept these here; they seed settings.json once.
   theme?: "dark" | "light";
   voice?: { model?: string; mic?: string; lang?: string };
@@ -124,6 +131,7 @@ function save() {
       editorFile: editor.path ?? undefined,
       editorH: Number.isFinite(eh) ? eh : undefined,
       recent,
+      tiled: tabs.isTiled || undefined,
     };
     invoke("session_save", { json: JSON.stringify(data) }).catch(() => {});
   }, 300);
@@ -145,10 +153,21 @@ function updateWatch() {
   watchKey = key;
   invoke("watch_set", { roots, files }).catch(() => {});
 }
-tree.onRoot = () => queueMicrotask(updateWatch);
+tree.onRoot = (root) => {
+  queueMicrotask(updateWatch);
+  plugins.emit("project:change", { project: root });
+};
+let shownFile: string | null = null;
 editor.onChange = () => {
   save();
   updateWatch();
+  if (tabs.isTiled) {
+    // A file just opened comes to the front as its own window.
+    if (editor.path && editor.path !== shownFile) tabs.focusExtra("editor");
+    else tabs.refreshWindows();
+  }
+  if (editor.path && editor.path !== shownFile) plugins.emit("file:open", { path: editor.path, project: tree.root || null });
+  shownFile = editor.path;
 };
 listen<{ paths: string[]; git: boolean }>("fs-change", (e) => {
   const paths = e.payload.paths;
@@ -183,15 +202,18 @@ function applyLook(s: Settings) {
   setVar("--accent-soft", hexAlpha(accent, light ? 0.1 : 0.14));
   // Glow off = an invisible shadow, so every rule using --glow simply loses it.
   setVar("--glow", s.effects.glow ? `0 0 6px ${hexAlpha(accent, light ? 0.35 : 0.55)}` : "0 0 0 transparent");
+  // Theme plugins first, then the user's own colours from settings.json.
+  for (const [k, v] of Object.entries(plugins.themeVars(s.theme))) setVar(`--${k.replace(/^--/, "")}`, v);
   for (const [k, v] of Object.entries(s.colors[s.theme])) setVar(`--${k.replace(/^--/, "")}`, v);
   setVar("--mono", `"${s.font.family.replace(/"/g, "")}", "Commit Mono", "Cascadia Mono", Consolas, ui-monospace, monospace`);
   setVar("--term-pad", `${s.terminal.padding}px`);
   root.classList.toggle("fx-glow", s.effects.glow);
   root.classList.toggle("fx-crt", s.effects.crt);
-  setTerminalTheme(s.theme, accent);
+  setTerminalTheme(s.theme, accent, plugins.terminalColors(s.theme));
   setTerminalOptions({ font: s.font.family, size: s.font.size, scrollback: s.terminal.scrollback, gpu: s.terminal.gpu });
   getCurrentWindow().setTheme(s.theme).catch(() => {});
   tt(btnTheme, light ? "Dark theme" : "Light theme");
+  repaintIcons(document.getElementById("tree")!);
 }
 
 let keys: Settings["keys"] = store.value.keys;
@@ -229,6 +251,78 @@ btnTheme.addEventListener("click", () => store.update((s) => (s.theme = s.theme 
 settingsWindow.onOpenJson = () => editor.open(store.path);
 settingsWindow.onVoiceModels = () => voice.openPop();
 settingsWindow.onInstallClaude = () => installClaude();
+settingsWindow.onPlugins = () => pluginsWindow.open();
+settingsWindow.pluginCount = () => ({
+  installed: plugins.plugins.length,
+  on: plugins.plugins.filter((p) => plugins.canRun(p)).length,
+});
+
+// ── plugins ──────────────────────────────────────────────
+plugins.getProject = () => tree.root || null;
+plugins.sendToTerminal = (text) => {
+  const s = tabs.activeSession;
+  if (!s) throw new Error("no terminal tab is open");
+  s.paste(text);
+  s.focus();
+};
+plugins.onChange = () => {
+  applyLook(store.value);
+  pluginsWindow.refresh();
+};
+tabs.onEvent = (name, data) => plugins.emit(name, data);
+editor.onSaved = (path) => plugins.emit("file:save", { path, project: tree.root || null });
+tree.extraMenuItems = (path) => plugins.menuItems(path);
+
+// ── title bar: Tern draws its own (tabs share the row with the window buttons) ──
+const appWindow = getCurrentWindow();
+const isMac = navigator.platform.toLowerCase().includes("mac");
+// macOS keeps its own traffic-light buttons, drawn over the left end of the tab row.
+root.classList.toggle("mac", isMac);
+const btnMax = document.querySelector<HTMLElement>('[data-wc="max"]')!;
+async function syncMaximized() {
+  const max = await appWindow.isMaximized().catch(() => false);
+  root.classList.toggle("maximized", max);
+  tt(btnMax, max ? "Restore" : "Maximize");
+}
+document.getElementById("win-controls")!.addEventListener("click", (e) => {
+  const b = (e.target as HTMLElement).closest<HTMLElement>("[data-wc]");
+  if (!b) return;
+  if (b.dataset.wc === "min") appWindow.minimize();
+  else if (b.dataset.wc === "max") appWindow.toggleMaximize();
+  else appWindow.close();
+});
+appWindow.onResized(() => syncMaximized());
+syncMaximized();
+
+// ── tiling mode ──────────────────────────────────────────
+const btnTile = document.getElementById("btn-tile")!;
+const editorEl = document.getElementById("editor")!;
+const editorHead = editorEl.querySelector<HTMLElement>(".ed-head")!;
+// In window mode the open file is a window too, with the editor's own header as its title bar.
+tabs.addWindow("editor", {
+  tile: () =>
+    editor.isOpen
+      ? { key: "editor", pane: editorEl, kind: "file", label: baseName(editor.path!), active: false, head: editorHead, headHome: editorEl }
+      : null,
+  focus: () => editor.focus(),
+  close: () => editor.close(),
+});
+editorEl.addEventListener("pointerdown", () => tabs.isTiled && tabs.focusExtra("editor"), true);
+
+function toggleTiling(on = !tabs.isTiled) {
+  if (on) {
+    panes.append(editorEl);
+    app.classList.add("windows");
+  }
+  tabs.setTiled(on);
+  if (!on) {
+    center.insertBefore(editorEl, editorSplit);
+    editorEl.style.cssText = "";
+    app.classList.remove("windows");
+  }
+  btnTile.setAttribute("aria-pressed", String(on));
+}
+btnTile.addEventListener("click", () => toggleTiling());
 
 // ── start screen and Claude Code install ─────────────────
 function showStart() {
@@ -384,6 +478,7 @@ const actions: Record<Exclude<Action, "voice">, () => void> = {
   goToFile: () => (quickOpen.isOpen ? quickOpen.close() : quickOpen.open()),
   searchFiles: () => search.open(),
   settings: () => (settingsWindow.isOpen ? settingsWindow.close() : settingsWindow.open()),
+  toggleTiling: () => toggleTiling(),
   closeTab: () => {
     // In the editor, closing means the file rather than the terminal tab.
     if (editor.isOpen && document.activeElement?.closest("#editor")) editor.close();
@@ -397,8 +492,8 @@ window.addEventListener(
   "keydown",
   (e) => {
     if (e.key === "Escape" && !newMenu.hidden) return toggleMenu(false);
-    let handled = false;
-    for (const [action, run] of Object.entries(actions)) {
+    let handled = plugins.handleKey(e, matches);
+    if (!handled) for (const [action, run] of Object.entries(actions)) {
       if (matches(e, keys[action as Action])) {
         run();
         handled = true;
@@ -445,6 +540,8 @@ window.addEventListener(
   } as Partial<Settings>);
   home = dirs.home;
   if (store.value.effects.asciiLogo) showSplash();
+  // Before the tabs, so theme plugins colour the terminals from the start.
+  await plugins.load();
 
   if (saved?.sidebarW) root.style.setProperty("--sidebar-w", `${saved.sidebarW}px`);
   if (saved?.sidebarHidden) app.classList.add("no-sidebar");
@@ -463,7 +560,7 @@ window.addEventListener(
   restore.forEach((t, i) => {
     let resume: string | undefined;
     if (t.kind === "claude") resume = alive[i] ? t.sessionId : t.continue ? "continue" : undefined;
-    opening.push(tabs.open(t.kind, t.cwd, { resume, focus: i === activeIdx, images: t.images }));
+    opening.push(tabs.open(t.kind, t.cwd, { resume, focus: i === activeIdx, images: t.images, win: t.win }));
   });
   await Promise.all(opening);
 
@@ -471,6 +568,7 @@ window.addEventListener(
   if (dirs.cli && !restore.some((t) => t.cwd === dirs.cli)) await tabs.open("claude", dirs.cli);
   // Nothing was open: the start screen (recent projects, open a folder).
   if (tabs.count === 0) showStart();
+  if (saved?.tiled) toggleTiling(true);
   if (saved?.editorFile) await editor.open(saved.editorFile, { focus: false });
 
   startUpdateChecks();

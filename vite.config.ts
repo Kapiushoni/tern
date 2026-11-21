@@ -16,5 +16,7 @@ export default defineConfig({
     target: process.env.TAURI_ENV_PLATFORM === "windows" ? "chrome105" : "safari13",
     minify: process.env.TAURI_ENV_DEBUG ? false : "esbuild",
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
+    // File-type icons stay separate files (loaded when shown) instead of being inlined as data URLs.
+    assetsInlineLimit: (file: string) => (file.includes("material-icon-theme") ? false : undefined),
   },
 });

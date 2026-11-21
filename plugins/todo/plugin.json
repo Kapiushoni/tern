@@ -1,0 +1,8 @@
+{
+  "name": "Project TODO",
+  "version": "1.0.0",
+  "description": "A to-do list for each project, in a small window. Kept in .tern/todo.json inside the project.",
+  "author": "Tern",
+  "main": "main.js",
+  "permissions": ["files"]
+}

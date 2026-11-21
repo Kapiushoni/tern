@@ -258,6 +258,46 @@ fn single_java(dir: &Path) -> Option<(String, String)> {
     Some((cmd, name))
 }
 
+/// C or C++ sources with a main() and no build system: all the sources of the folder are compiled
+/// together into a temp folder, then run.
+fn single_c(dir: &Path) -> Option<(String, String)> {
+    let cpp: Vec<PathBuf> = ["cpp", "cc", "cxx"].iter().flat_map(|e| files_with_ext(dir, e)).collect();
+    let c = files_with_ext(dir, "c");
+    let has_main = |files: &[PathBuf]| {
+        files.iter().find(|p| {
+            std::fs::read_to_string(p).is_ok_and(|t| t.contains("main(") || t.contains("main ("))
+        }).cloned()
+    };
+    let (sources, main, plus) = if let Some(m) = has_main(&cpp) {
+        (cpp, m, true)
+    } else if let Some(m) = has_main(&c) {
+        (c, m, false)
+    } else {
+        return None;
+    };
+    let candidates: &[&str] = if plus { &["g++", "clang++"] } else { &["gcc", "clang"] };
+    let compiler = candidates
+        .iter()
+        .find(|c| which::which(c).is_ok())
+        .map(|c| c.to_string())
+        .unwrap_or_else(|| candidates[0].to_string());
+    let project = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "c".into());
+    let names: Vec<String> = sources.iter().filter_map(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).collect();
+    let source = main.file_name()?.to_string_lossy().into_owned();
+    let cmd = if cfg!(windows) {
+        let out = format!("$env:TEMP\\tern-run\\{project}");
+        let files = names.iter().map(|n| format!("\"{n}\"")).collect::<Vec<_>>().join(" ");
+        format!(
+            "md -Force \"{out}\" > $null; {compiler} {files} -o \"{out}\\main.exe\"; if ($?) {{ & \"{out}\\main.exe\" }}"
+        )
+    } else {
+        let out = format!("/tmp/tern-run/{project}");
+        let files = names.iter().map(|n| format!("'{n}'")).collect::<Vec<_>>().join(" ");
+        format!("mkdir -p '{out}' && {compiler} {files} -o '{out}/main' && '{out}/main'")
+    };
+    Some((cmd, source))
+}
+
 /// The installed JDK with the highest major version: (home folder, major version).
 fn newest_jdk() -> Option<(PathBuf, u32)> {
     let mut homes: Vec<PathBuf> = Vec::new();
@@ -363,6 +403,21 @@ fn detect(root: &Path) -> Option<(String, String)> {
     }
     if let Some(java) = single_java(root) {
         return Some(java);
+    }
+    if has("CMakeLists.txt") {
+        let cmd = if cfg!(windows) {
+            "cmake -S . -B build; if ($?) { cmake --build build }"
+        } else {
+            "cmake -S . -B build && cmake --build build"
+        };
+        return Some((cmd.into(), "CMakeLists.txt".into()));
+    }
+    if has("Makefile") || has("makefile") {
+        let make = if which::which("make").is_err() && which::which("mingw32-make").is_ok() { "mingw32-make" } else { "make" };
+        return Some((make.into(), "Makefile".into()));
+    }
+    if let Some(c) = single_c(root) {
+        return Some(c);
     }
     for script in ["index.js", "main.js", "server.js", "app.js"] {
         if has(script) {

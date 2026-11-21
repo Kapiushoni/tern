@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "./toast";
 import { t } from "./i18n";
+import { fileIcon, iconsReady, setFolderOpen } from "./fileicons";
 
 interface Entry {
   name: string;
@@ -56,6 +57,8 @@ export class FileTree {
   onOpen: (path: string) => void = () => {};
   onAskClaude: (path: string) => void = () => {};
   onOpenInIde: (path: string) => void = () => {};
+  /** Items plugins add to the context menu. */
+  extraMenuItems: (path: string) => MenuItem[] = () => [];
   /** The tree now shows another folder (the watcher follows it). */
   onRoot: (root: string) => void = () => {};
 
@@ -161,6 +164,7 @@ export class FileTree {
   }
 
   private async rebuild(keep: Set<string>) {
+    await iconsReady;
     const root = this.root;
     const scroll = this.el.scrollTop;
     const frag = document.createElement("div");
@@ -205,7 +209,7 @@ export class FileTree {
     const name = document.createElement("span");
     name.className = "name";
     name.textContent = e.name;
-    row.append(twisty, name);
+    row.append(twisty, fileIcon(e.name, e.is_dir), name);
     if (e.is_dir) row.setAttribute("aria-expanded", "false");
     this.paintGit(row);
     return row;
@@ -252,6 +256,7 @@ export class FileTree {
     this.expanded.delete(row.dataset.path!);
     row.setAttribute("aria-expanded", "false");
     row.querySelector(".twisty")!.textContent = "›";
+    setFolderOpen(row.querySelector(".ficon"), false);
     let next = row.nextElementSibling as HTMLElement | null;
     while (next && Number(next.dataset.depth) > depth) {
       const n = next.nextElementSibling as HTMLElement | null;
@@ -267,6 +272,7 @@ export class FileTree {
     this.expanded.add(path);
     row.setAttribute("aria-expanded", "true");
     row.querySelector(".twisty")!.textContent = "⌄";
+    setFolderOpen(row.querySelector(".ficon"), true);
     await this.renderChildren(path, row, Number(row.dataset.depth) + 1, false, row.classList.contains("hidden-entry"));
   }
 
@@ -302,6 +308,8 @@ export class FileTree {
       { label: t("Open in Explorer"), run: () => invoke("reveal_entry", { path }).catch((err) => toast(explain(err))) },
       { label: t("Open in IDE"), run: () => this.onOpenInIde(path) },
     );
+    const extra = this.extraMenuItems(path);
+    if (extra.length) items.push(null, ...extra);
     this.showMenu(items, e.clientX, e.clientY);
   }
 
@@ -391,7 +399,7 @@ export class FileTree {
     const twisty = document.createElement("span");
     twisty.className = "twisty";
     twisty.textContent = isDir ? "›" : "";
-    temp.append(twisty);
+    temp.append(twisty, fileIcon("", isDir));
     if (dirRow) dirRow.after(temp);
     else this.el.prepend(temp);
     temp.scrollIntoView({ block: "nearest" });

@@ -41,11 +41,36 @@ const LANGS: Record<string, Loader> = {
   zsh: legacy(async () => (await import("@codemirror/legacy-modes/mode/shell")).shell),
   ps1: legacy(async () => (await import("@codemirror/legacy-modes/mode/powershell")).powerShell),
   toml: legacy(async () => (await import("@codemirror/legacy-modes/mode/toml")).toml),
+  // C and C++ (one grammar covers both), headers included.
+  c: async () => (await import("@codemirror/lang-cpp")).cpp(),
+  h: async () => (await import("@codemirror/lang-cpp")).cpp(),
+  cpp: async () => (await import("@codemirror/lang-cpp")).cpp(),
+  cc: async () => (await import("@codemirror/lang-cpp")).cpp(),
+  cxx: async () => (await import("@codemirror/lang-cpp")).cpp(),
+  "c++": async () => (await import("@codemirror/lang-cpp")).cpp(),
+  hpp: async () => (await import("@codemirror/lang-cpp")).cpp(),
+  hh: async () => (await import("@codemirror/lang-cpp")).cpp(),
+  hxx: async () => (await import("@codemirror/lang-cpp")).cpp(),
+  ino: async () => (await import("@codemirror/lang-cpp")).cpp(),
+  cs: legacy(async () => (await import("@codemirror/legacy-modes/mode/clike")).csharp),
+  go: legacy(async () => (await import("@codemirror/legacy-modes/mode/go")).go),
+  lua: legacy(async () => (await import("@codemirror/legacy-modes/mode/lua")).lua),
+  rb: legacy(async () => (await import("@codemirror/legacy-modes/mode/ruby")).ruby),
+  swift: legacy(async () => (await import("@codemirror/legacy-modes/mode/swift")).swift),
+  cmake: legacy(async () => (await import("@codemirror/legacy-modes/mode/cmake")).cmake),
+};
+
+/** Files known by their whole name rather than an extension. */
+const BY_NAME: Record<string, Loader> = {
+  "cmakelists.txt": LANGS.cmake,
+  dockerfile: legacy(async () => (await import("@codemirror/legacy-modes/mode/dockerfile")).dockerFile),
+  makefile: legacy(async () => (await import("@codemirror/legacy-modes/mode/shell")).shell),
 };
 
 async function languageFor(path: string): Promise<Extension> {
-  const ext = path.split(".").pop()?.toLowerCase() ?? "";
-  const load = LANGS[ext];
+  const name = (path.split(/[\\/]/).pop() ?? "").toLowerCase();
+  const ext = name.includes(".") ? name.split(".").pop()! : "";
+  const load = BY_NAME[name] ?? LANGS[ext];
   if (!load) return [];
   try {
     return await load();

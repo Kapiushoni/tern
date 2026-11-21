@@ -23,6 +23,9 @@ export class SettingsWindow {
   onInstallClaude: () => void = () => {};
   /** The voice model popover (downloads live there). */
   onVoiceModels: () => void = () => {};
+  onPlugins: () => void = () => {};
+  /** How many plugins are installed / on, for the row. */
+  pluginCount: () => { installed: number; on: number } = () => ({ installed: 0, on: 0 });
   private el: HTMLElement;
   private returnFocus: HTMLElement | null = null;
 
@@ -224,6 +227,17 @@ export class SettingsWindow {
       claudeControls.push(install);
     }
     row("Claude Code", ...claudeControls);
+
+    const pc = this.pluginCount();
+    const plugInfo = document.createElement("span");
+    plugInfo.className = "st-claude";
+    plugInfo.textContent = t("{on} of {n} on", { on: pc.on, n: pc.installed });
+    const managePlugins = button("Manage…", "st-btn");
+    managePlugins.addEventListener("click", () => {
+      this.close();
+      this.onPlugins();
+    });
+    row("Plugins", plugInfo, managePlugins);
 
     const foot = div("st-foot");
     foot.append(span("st-note", "Colours, hotkeys, claude's path and arguments, hidden folders and more are in settings.json."));

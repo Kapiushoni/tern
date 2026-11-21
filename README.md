@@ -100,4 +100,4 @@ under `[env]`, or in your shell):
 
 ## License
 
-MIT. Bundled font: Commit Mono, SIL Open Font License (see `src/fonts/CommitMono-OFL.txt`).
+MIT. Bundled font: Commit Mono (SIL Open Font License); file icons: [Material Icon Theme](https://github.com/material-extensions/vscode-material-icon-theme) (MIT). See `THIRD-PARTY-NOTICES.md`.
