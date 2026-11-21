@@ -4,6 +4,7 @@ import { chime } from "./sound";
 import { t } from "./i18n";
 import { isImage, quotePath, imageTagsInInput } from "./attach";
 import { Tiler, Rect, Tile } from "./tiling";
+import { setKind, sparkTitle } from "./marks";
 
 /** A window that isn't a terminal tab (the editor), shown in window mode next to the tabs. */
 export interface ExtraWindow {
@@ -130,7 +131,7 @@ export class Tabs {
       `<span class="dot"></span><span class="kind"></span><span class="dir"></span>` +
       `<button class="close" tabindex="-1">×</button>`;
     el.querySelector<HTMLElement>(".close")!.title = t("Close (Ctrl+W)");
-    el.querySelector(".kind")!.textContent = kind;
+    setKind(el.querySelector<HTMLElement>(".kind")!, kind);
     el.querySelector(".dir")!.textContent = opts.label ?? baseName(cwd);
     this.strip.append(el);
 
@@ -230,7 +231,7 @@ export class Tabs {
         // Stage 1 fallback: turn this tab into a shell. The install screen comes in stage 7.
         tab.kind = "shell";
         tab.el.classList.replace("claude", "shell");
-        tab.el.querySelector(".kind")!.textContent = "shell";
+        setKind(tab.el.querySelector<HTMLElement>(".kind")!, "shell");
         term.dispose();
         await this.spawn(tab);
         tab.term.term.write(
@@ -393,6 +394,16 @@ export class Tabs {
   private setActivity(tab: Tab, a: Activity) {
     tab.activity = a;
     tab.el.dataset.activity = a;
+    const title = sparkTitle(a, tab.awaitingAnswer);
+    const mark = tab.el.querySelector<HTMLElement>(".claude-mark");
+    if (mark) mark.title = title;
+    // The same tab as a window (window mode) shows the same state.
+    const frame = this.host.querySelector<HTMLElement>(`.win-frame[data-key="${tab.key}"]`);
+    if (frame) {
+      frame.dataset.activity = a;
+      const m = frame.querySelector<HTMLElement>(".claude-mark");
+      if (m) m.title = title;
+    }
   }
 
   // ── tiling mode ───────────────────────────────────────
@@ -452,6 +463,7 @@ export class Tabs {
       pane: t.pane,
       kind: t.kind,
       label: t.el.querySelector(".dir")?.textContent ?? baseName(t.cwd),
+      activity: t.activity,
       active: !this.focusedExtra && t === this.active,
     }));
     for (const [key, w] of this.extras) {

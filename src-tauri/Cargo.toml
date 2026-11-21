@@ -1,6 +1,6 @@
 [package]
 name = "tern"
-version = "0.1.0"
+version = "0.2.0"
 description = "Fast, minimal terminal workspace for Claude Code"
 edition = "2021"
 license = "MIT"
@@ -35,6 +35,7 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [target.'cfg(windows)'.dependencies]
 clipboard-win = "5"
+winreg = "0.55"
 
 # Speech recognition is unusably slow unoptimised, even in dev builds.
 [profile.dev.package.whisper-rs-sys]

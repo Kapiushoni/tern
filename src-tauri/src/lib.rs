@@ -1,5 +1,6 @@
 mod attach;
 mod files;
+mod fonts;
 mod fs;
 mod git;
 mod hooks;
@@ -45,6 +46,7 @@ pub fn run() {
             files::reveal_entry,
             git::git_status,
             watch::watch_set,
+            fonts::system_fonts,
             fs::list_dir,
             fs::initial_dir,
             pty::pty_spawn,

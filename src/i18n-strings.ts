@@ -242,6 +242,11 @@ export const RU: Record<string, string> = {
   "loading the catalog…": "загружаю каталог…",
   "It asks for new permissions: turn it on again to review them.": "Плагин просит новые разрешения: включите его снова, чтобы их посмотреть.",
   "Install plugins only from authors you trust.": "Ставьте плагины только от авторов, которым доверяете.",
+  // plugins
+  "Claude Code · working…": "Claude Code · работает…",
+  "Claude Code · waiting for you": "Claude Code · ждёт вашего ответа",
+  "Claude Code · finished": "Claude Code · закончил",
+  "No matching fonts": "Таких шрифтов нет",
 };
 
 export const UK: Record<string, string> = {
@@ -471,4 +476,8 @@ export const UK: Record<string, string> = {
   "loading the catalog…": "завантажую каталог…",
   "It asks for new permissions: turn it on again to review them.": "Плагін просить нові дозволи: увімкніть його знову, щоб їх переглянути.",
   "Install plugins only from authors you trust.": "Встановлюйте плагіни лише від авторів, яким довіряєте.",
+  "Claude Code · working…": "Claude Code · працює…",
+  "Claude Code · waiting for you": "Claude Code · чекає на вашу відповідь",
+  "Claude Code · finished": "Claude Code · закінчив",
+  "No matching fonts": "Таких шрифтів немає",
 };

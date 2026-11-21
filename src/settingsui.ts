@@ -28,6 +28,15 @@ export class SettingsWindow {
   pluginCount: () => { installed: number; on: number } = () => ({ installed: 0, on: 0 });
   private el: HTMLElement;
   private returnFocus: HTMLElement | null = null;
+  /** In window mode the settings are a window: this is its content, a pane among the tabs. */
+  readonly pane: HTMLElement;
+  private docked = false;
+  /** The header ("settings" + close). Kept across renders: in window mode it is the title bar. */
+  readonly head: HTMLElement;
+  /** Whether to open as a window (window mode is on). */
+  asWindow: () => boolean = () => false;
+  /** Opened or closed as a window: the window layout must follow. */
+  onWindow: (open: boolean) => void = () => {};
 
   constructor(private store: SettingsStore) {
     this.el = document.createElement("div");
@@ -37,30 +46,59 @@ export class SettingsWindow {
     this.el.addEventListener("mousedown", (e) => {
       if (e.target === this.el) this.close();
     });
-    this.el.addEventListener("keydown", (e) => {
+    const onEsc = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
         this.close();
       }
-    });
+    };
+    this.el.addEventListener("keydown", onEsc);
+    this.head = div("st-head");
+    this.head.append(span("st-title", "settings"));
+    const close = button("×", "st-close icon-btn");
+    close.dataset.i18nTitle = "Close (Esc)";
+    close.addEventListener("click", () => this.close());
+    this.head.append(close);
+    this.pane = document.createElement("div");
+    this.pane.className = "settings-pane";
+    this.pane.hidden = true;
+    this.pane.addEventListener("keydown", onEsc);
   }
 
   get isOpen() {
-    return !this.el.hidden;
+    return this.docked || !this.el.hidden;
+  }
+
+  /** Open as a window right now. */
+  get isWindow() {
+    return this.docked;
   }
 
   async open() {
     this.returnFocus = document.activeElement as HTMLElement | null;
+    this.docked = this.asWindow();
     await this.render();
-    this.el.hidden = false;
-    this.el.querySelector<HTMLElement>(".st-panel")!.focus();
+    if (this.docked) this.onWindow(true);
+    else this.el.hidden = false;
+    this.target().querySelector<HTMLElement>(".st-panel")?.focus();
   }
 
   close() {
-    if (this.el.hidden) return;
-    this.el.hidden = true;
+    if (!this.isOpen) return;
+    if (this.docked) {
+      this.docked = false;
+      this.pane.replaceChildren();
+      this.pane.hidden = true;
+      this.onWindow(false);
+    } else {
+      this.el.hidden = true;
+    }
     this.returnFocus?.focus();
+  }
+
+  private target() {
+    return this.docked ? this.pane : this.el;
   }
 
   /** settings.json changed while the window is open: show the new values. */
@@ -79,13 +117,9 @@ export class SettingsWindow {
 
     const panel = div("st-panel");
     panel.tabIndex = -1;
-    const head = div("st-head");
-    head.append(span("st-title", "settings"));
-    const close = button("×", "st-close icon-btn");
-    close.dataset.i18nTitle = "Close (Esc)";
-    close.addEventListener("click", () => this.close());
-    head.append(close);
-    panel.append(head);
+    // As a window, the header is the window's title bar (it lives in the window frame).
+    if (!this.docked) panel.append(this.head);
+    translateTree(this.head);
     const body = div("st-body");
     panel.append(body);
     const row = (label: string, ...controls: HTMLElement[]) => {
@@ -131,18 +165,7 @@ export class SettingsWindow {
     }
     row("Accent colour", ...accentControls);
 
-    const font = document.createElement("input");
-    font.type = "text";
-    font.className = "st-input";
-    font.value = s.font.family;
-    font.setAttribute("list", "st-fonts");
-    font.spellcheck = false;
-    const fonts = document.createElement("datalist");
-    fonts.id = "st-fonts";
-    for (const f of ["Commit Mono", "Cascadia Mono", "Cascadia Code", "Consolas", "JetBrains Mono", "Fira Code", "Menlo", "SF Mono", "DejaVu Sans Mono"]) {
-      fonts.append(new Option(f));
-    }
-    font.addEventListener("change", () => set((x) => (x.font.family = font.value.trim() || DEFAULTS.font.family)));
+    const font = fontPicker(s.font.family, (name) => set((x) => (x.font.family = name || DEFAULTS.font.family)));
     const size = document.createElement("input");
     size.type = "number";
     size.min = "9";
@@ -150,7 +173,7 @@ export class SettingsWindow {
     size.className = "st-input st-num";
     size.value = String(s.font.size);
     size.addEventListener("change", () => set((x) => (x.font.size = Number(size.value) || DEFAULTS.font.size)));
-    row("Font", font, fonts, size, span("st-unit", "px"));
+    row("Font", font, size, span("st-unit", "px"));
 
     const fx = div("st-checks");
     const effects: [keyof Settings["effects"], string][] = [
@@ -250,7 +273,7 @@ export class SettingsWindow {
     panel.append(foot);
 
     translateTree(panel);
-    this.el.replaceChildren(panel);
+    this.target().replaceChildren(panel);
   }
 }
 
@@ -308,4 +331,118 @@ function check(en: string, on: boolean, onChange: (on: boolean) => void) {
   box.addEventListener("change", () => onChange(box.checked));
   l.append(box, span("", en));
   return l;
+}
+
+// ── font picker ──────────────────────────────────────────
+
+let monoFonts: Promise<string[]> | null = null;
+
+/** Installed monospaced fonts (Tern's own Commit Mono first). Checked by measuring: in a
+ *  monospaced font "iiii" and "MMMM" are equally wide; a font that isn't there falls back to serif,
+ *  which is not, so it drops out too. */
+function installedMonoFonts(): Promise<string[]> {
+  monoFonts ??= invoke<string[]>("system_fonts")
+    .catch(() => [] as string[])
+    .then((names) => {
+      const ctx = document.createElement("canvas").getContext("2d")!;
+      const width = (f: string, text: string) => {
+        ctx.font = `20px "${f.replace(/"/g, "")}", serif`;
+        return ctx.measureText(text).width;
+      };
+      const mono = names.filter((f) => Math.abs(width(f, "iiiiiiii") - width(f, "MMMMMMMM")) < 0.5 && width(f, "ilWM") > 0);
+      return ["Commit Mono", ...mono.filter((f) => f !== "Commit Mono")];
+    });
+  return monoFonts;
+}
+
+/** A text box with a list of the installed monospaced fonts, each shown in itself. Opens with
+ *  the whole list; typing narrows it. */
+function fontPicker(value: string, onPick: (name: string) => void) {
+  const wrap = div("st-font");
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "st-input";
+  input.value = value;
+  input.spellcheck = false;
+  input.autocomplete = "off";
+  const arrow = document.createElement("button");
+  arrow.className = "st-font-arrow";
+  arrow.tabIndex = -1;
+  arrow.textContent = "▾";
+  const list = div("st-font-list");
+  list.hidden = true;
+  wrap.append(input, arrow, list);
+
+  let filter = "";
+  let sel = -1;
+  const show = async () => {
+    const all = await installedMonoFonts();
+    const f = filter.toLowerCase();
+    const shown = f ? all.filter((n) => n.toLowerCase().includes(f)) : all;
+    list.replaceChildren();
+    for (const name of shown) {
+      const o = div("st-font-opt");
+      o.textContent = name;
+      o.style.fontFamily = `"${name}", monospace`;
+      if (name.toLowerCase() === input.value.trim().toLowerCase()) o.classList.add("current");
+      o.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        pick(name);
+      });
+      list.append(o);
+    }
+    if (!shown.length) list.append(Object.assign(div("st-font-none"), { textContent: t("No matching fonts") }));
+    list.hidden = false;
+    sel = -1;
+    list.querySelector(".current")?.scrollIntoView({ block: "nearest" });
+  };
+  const hide = () => {
+    list.hidden = true;
+  };
+  const pick = (name: string) => {
+    input.value = name;
+    hide();
+    if (name !== value) onPick(name);
+  };
+  const move = (d: number) => {
+    const opts = [...list.querySelectorAll<HTMLElement>(".st-font-opt")];
+    if (!opts.length) return;
+    sel = (sel + d + opts.length) % opts.length;
+    opts.forEach((o, i) => o.classList.toggle("sel", i === sel));
+    opts[sel].scrollIntoView({ block: "nearest" });
+  };
+
+  // Opening shows everything; typing filters.
+  input.addEventListener("focus", () => {
+    filter = "";
+    input.select();
+    show();
+  });
+  input.addEventListener("input", () => {
+    filter = input.value.trim();
+    show();
+  });
+  input.addEventListener("blur", () => setTimeout(hide, 120));
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown") move(1);
+    else if (e.key === "ArrowUp") move(-1);
+    else if (e.key === "Enter") {
+      const opts = list.querySelectorAll<HTMLElement>(".st-font-opt");
+      const chosen = sel >= 0 ? opts[sel]?.textContent : opts.length === 1 ? opts[0].textContent : input.value.trim();
+      pick(chosen || value);
+      input.blur();
+    } else if (e.key === "Escape" && !list.hidden) {
+      input.value = value;
+      hide();
+      // Only close the list, not the settings.
+      e.stopPropagation();
+    } else return;
+    e.preventDefault();
+  });
+  arrow.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    if (list.hidden) input.focus();
+    else hide();
+  });
+  return wrap;
 }

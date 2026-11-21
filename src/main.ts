@@ -302,18 +302,45 @@ const editorHead = editorEl.querySelector<HTMLElement>(".ed-head")!;
 tabs.addWindow("editor", {
   tile: () =>
     editor.isOpen
-      ? { key: "editor", pane: editorEl, kind: "file", label: baseName(editor.path!), active: false, head: editorHead, headHome: editorEl }
+      ? { key: "editor", pane: editorEl, kind: "file", label: baseName(editor.path!), active: false, head: editorHead, headHome: editorEl, flush: true }
       : null,
   focus: () => editor.focus(),
   close: () => editor.close(),
 });
 editorEl.addEventListener("pointerdown", () => tabs.isTiled && tabs.focusExtra("editor"), true);
 
+// The settings are a window too, in window mode.
+panes.append(settingsWindow.pane);
+settingsWindow.asWindow = () => tabs.isTiled;
+settingsWindow.onWindow = (open) => (open ? tabs.focusExtra("settings") : tabs.refreshWindows());
+tabs.addWindow("settings", {
+  tile: () =>
+    settingsWindow.isWindow
+      ? {
+          key: "settings",
+          pane: settingsWindow.pane,
+          kind: "settings",
+          label: "Tern",
+          active: false,
+          head: settingsWindow.head,
+          headHome: settingsWindow.pane,
+          bar: 41,
+          flush: true,
+          size: [660, 640],
+        }
+      : null,
+  focus: () => settingsWindow.pane.querySelector<HTMLElement>(".st-panel")?.focus(),
+  close: () => settingsWindow.close(),
+});
+settingsWindow.pane.addEventListener("pointerdown", () => tabs.isTiled && tabs.focusExtra("settings"), true);
+
 function toggleTiling(on = !tabs.isTiled) {
   if (on) {
     panes.append(editorEl);
     app.classList.add("windows");
   }
+  // Settings open as a window close with window mode (they reopen as the usual dialog).
+  if (!on && settingsWindow.isWindow) settingsWindow.close();
   tabs.setTiled(on);
   if (!on) {
     center.insertBefore(editorEl, editorSplit);

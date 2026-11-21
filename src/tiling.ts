@@ -6,12 +6,16 @@
  * they scale with the window.
  */
 
+import { setKind } from "./marks";
+
 export interface Tile {
   key: string;
   pane: HTMLElement;
   /** "claude", "shell". */
   kind: string;
   label: string;
+  /** Claude's state ("idle", "working", "done"), for the spark in the title bar. */
+  activity?: string;
   active: boolean;
   /**
    * Its own title bar instead of the standard one (the editor brings its header: file name,
@@ -19,6 +23,12 @@ export interface Tile {
    */
   head?: HTMLElement;
   headHome?: HTMLElement;
+  /** Height of that title bar in px (the standard one is 24). */
+  bar?: number;
+  /** Content fills the window edge to edge (no inner margin, as a terminal has). */
+  flush?: boolean;
+  /** Size in px when it first opens, centred (otherwise half the area, cascaded). */
+  size?: [number, number];
 }
 
 /** x, y, w, h as fractions of the terminal area. */
@@ -84,7 +94,7 @@ export class Tiler {
     this.order = this.order.filter((k) => keys.has(k));
     const fresh = tiles.filter((t) => !this.rects.has(t.key));
     if (fresh.length === tiles.length) this.arrange(false);
-    else for (const t of fresh) this.rects.set(t.key, this.cascade());
+    else for (const t of fresh) this.rects.set(t.key, t.size ? this.centred(t.size) : this.cascade());
     for (const t of tiles) if (!this.order.includes(t.key)) this.order.push(t.key);
     // The active window comes to the front.
     const active = tiles.find((t) => t.active);
@@ -133,6 +143,14 @@ export class Tiler {
     return [x, y, w, h];
   }
 
+  /** A rect of this size in px, in the middle of the area (shrunk to fit). */
+  private centred([pw, ph]: [number, number]): Rect {
+    const a = this.area();
+    const w = Math.min(1, (pw + GAP) / a.w);
+    const h = Math.min(1, (ph + GAP) / a.h);
+    return [(1 - w) / 2, (1 - h) / 2, w, h];
+  }
+
   private area() {
     return { w: this.host.clientWidth - GAP, h: this.host.clientHeight - GAP };
   }
@@ -164,9 +182,11 @@ export class Tiler {
         this.host.append(frame);
       }
       if (!t.head) {
-        frame.querySelector(".win-kind")!.textContent = t.kind;
+        setKind(frame.querySelector<HTMLElement>(".win-kind")!, t.kind);
         frame.querySelector(".win-label")!.textContent = t.label;
       }
+      if (t.activity) frame.dataset.activity = t.activity;
+      frame.classList.toggle("claude", t.kind === "claude");
       frame.classList.toggle("shell", t.kind !== "claude");
       frame.classList.toggle("active", t.active);
       t.pane.classList.toggle("active-tile", t.active);
@@ -186,13 +206,19 @@ export class Tiler {
     Object.assign(frame.style, {
       left: `${b.left}px`, top: `${b.top}px`, width: `${b.width}px`, height: `${b.height}px`, zIndex: String(z),
     });
-    Object.assign(tile.pane.style, {
-      left: `${b.left + PAD}px`,
-      top: `${b.top + BAR + PAD / 2}px`,
-      width: `${b.width - PAD * 2}px`,
-      height: `${b.height - BAR - PAD * 1.5}px`,
-      zIndex: String(z + 1),
-    });
+    const bar = tile.bar ?? BAR;
+    Object.assign(
+      tile.pane.style,
+      tile.flush
+        ? { left: `${b.left + 1}px`, top: `${b.top + bar}px`, width: `${b.width - 2}px`, height: `${b.height - bar - 1}px` }
+        : {
+            left: `${b.left + PAD}px`,
+            top: `${b.top + bar + PAD / 2}px`,
+            width: `${b.width - PAD * 2}px`,
+            height: `${b.height - bar - PAD * 1.5}px`,
+          },
+      { zIndex: String(z + 1) },
+    );
   }
 
   /** Removes a window's frame, first giving a borrowed title bar back to its owner. */
