@@ -9,6 +9,9 @@ import { Tabs, SavedTab } from "./tabs";
 import { Attachments } from "./attach";
 import { Editor } from "./editor";
 import { Voice, VoiceSettings } from "./voice";
+import { QuickOpen } from "./quickopen";
+import { Search } from "./search";
+import { ProjectTools } from "./projecttools";
 
 const app = document.getElementById("app")!;
 const termHost = document.getElementById("terminal-host")!;
@@ -28,6 +31,33 @@ const tabs = new Tabs(document.getElementById("tabs")!, panes);
 const attachments = new Attachments(termHost, panes, tabs);
 const editor = new Editor(document.getElementById("editor")!);
 const voice = new Voice(tabs, attachments.tools, termHost);
+const quickOpen = new QuickOpen();
+const search = new Search(document.getElementById("search-view")!);
+const projectTools = new ProjectTools(tabs, document.getElementById("btn-run")!, document.getElementById("btn-ide")!);
+const projectRoot = () => tree.root || null;
+quickOpen.getRoot = projectRoot;
+quickOpen.onOpen = (path) => editor.open(path);
+quickOpen.onAskClaude = (path) => tabs.askClaude(path);
+search.getRoot = projectRoot;
+search.onOpen = (path, at) => editor.open(path, { at, focus: false });
+search.onToggle = (open) => {
+  document.getElementById("sidebar")!.classList.toggle("searching", open);
+  if (open) app.classList.remove("no-sidebar");
+  else tabs.activeSession?.focus();
+};
+projectTools.getRoot = projectRoot;
+projectTools.getFrom = () => tree.selected ?? editor.path;
+projectTools.showMenu = (items, x, y) => tree.showMenu(items, x, y);
+projectTools.openPreview = (path) => editor.open(path, { preview: true });
+tree.onOpenInIde = (path) => projectTools.openIde(path);
+// An HTML preview serves the project folder, so links like "/css/site.css" work.
+editor.previewRoot = (path) => {
+  const root = tree.root.replace(/[\\/]+$/, "");
+  const lower = path.toLowerCase();
+  if (root && (lower.startsWith(root.toLowerCase() + "\\") || lower.startsWith(root.toLowerCase() + "/"))) return root;
+  return path.replace(/[\\/][^\\/]*$/, "");
+};
+document.getElementById("btn-search")!.addEventListener("click", () => search.open());
 tree.onDragOut = (path, target) => {
   if (target?.closest("#terminal-host")) tabs.attach([path]);
   else if (target?.closest("#editor")) editor.open(path);
@@ -49,6 +79,8 @@ interface Saved {
   editorH?: number;
   theme?: ThemeName;
   voice?: VoiceSettings;
+  /** The IDE for "Open in IDE"; unset = by project language. */
+  ide?: string;
 }
 
 function baseName(p: string) {
@@ -72,12 +104,14 @@ function save() {
       editorH: Number.isFinite(eh) ? eh : undefined,
       theme,
       voice: voice.settings,
+      ide: projectTools.ide,
     };
     invoke("session_save", { json: JSON.stringify(data) }).catch(() => {});
   }, 300);
 }
 tabs.onChange = save;
 voice.onChange = save;
+projectTools.onChange = save;
 
 // ── watching the disk: tree, git colours and the open file follow outside edits ──
 let watchKey = "";
@@ -96,6 +130,7 @@ editor.onChange = () => {
 };
 listen<{ paths: string[]; git: boolean }>("fs-change", (e) => {
   tree.onDiskChange(e.payload.paths, e.payload.git);
+  quickOpen.invalidate();
   editor.onDiskChange(e.payload.paths);
 });
 
@@ -132,6 +167,7 @@ tabs.onActivate = (cwd) => {
   rootName.textContent = baseName(cwd);
   rootName.title = cwd;
   tree.open(cwd);
+  search.rootChanged();
 };
 
 const currentDir = () => tabs.activeCwd ?? tree.root ?? home;
@@ -257,6 +293,8 @@ window.addEventListener(
     } else if (!shift && e.code === "Backquote") newTab("claude");
     else if (shift && e.code === "KeyT") newTab("shell");
     else if (shift && e.code === "KeyA") attachments.pick();
+    else if (!shift && e.code === "KeyP") quickOpen.isOpen ? quickOpen.close() : quickOpen.open();
+    else if (shift && e.code === "KeyF") search.open();
     else if (!shift && e.code === "KeyW") {
       // In the editor, Ctrl+W closes the file rather than the terminal tab.
       if (editor.isOpen && document.activeElement?.closest("#editor")) editor.close();
@@ -293,6 +331,7 @@ window.addEventListener(
   if (saved?.editorH) document.documentElement.style.setProperty("--editor-h", `${saved.editorH}%`);
   // Before any terminal is created, so they all start in the right colours.
   applyTheme(saved?.theme === "light" ? "light" : "dark");
+  projectTools.ide = saved?.ide;
   if (saved?.voice?.model) voice.settings = { ...voice.settings, ...saved.voice };
 
   const restore = saved?.tabs ?? [];

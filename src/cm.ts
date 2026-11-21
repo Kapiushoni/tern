@@ -97,6 +97,8 @@ export interface CodeEditor {
   /** Replaces the text (after a change on disk), keeping the cursor and scroll where possible. */
   replace(text: string): void;
   setReadOnly(on: boolean): void;
+  /** Selects `len` characters at line/column (1-based line, 0-based column) and centres them. */
+  goto(line: number, col: number, len: number): void;
   destroy(): void;
 }
 
@@ -153,6 +155,16 @@ export async function createEditor(
     },
     setReadOnly(on: boolean) {
       view.dispatch({ effects: readOnly.reconfigure(EditorState.readOnly.of(on)) });
+    },
+    goto(line: number, col: number, len: number) {
+      const doc = view.state.doc;
+      const l = doc.line(Math.max(1, Math.min(line, doc.lines)));
+      const from = l.from + Math.min(col, l.length);
+      const to = Math.min(from + len, l.to);
+      view.dispatch({
+        selection: { anchor: from, head: to },
+        effects: EditorView.scrollIntoView(from, { y: "center" }),
+      });
     },
     destroy: () => view.destroy(),
   };

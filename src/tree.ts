@@ -45,10 +45,16 @@ export class FileTree {
   private menu: HTMLElement;
   root = "";
 
+  /** The highlighted row's path, if any. */
+  get selected(): string | null {
+    return this.selectedPath;
+  }
+
   /** A row was dragged out of the tree and dropped on `target` (the element under the pointer). */
   onDragOut: (path: string, target: Element | null) => void = () => {};
   onOpen: (path: string) => void = () => {};
   onAskClaude: (path: string) => void = () => {};
+  onOpenInIde: (path: string) => void = () => {};
   /** The tree now shows another folder (the watcher follows it). */
   onRoot: (root: string) => void = () => {};
 
@@ -293,11 +299,12 @@ export class FileTree {
       { label: "Copy path", run: () => this.copy(path) },
       { label: "Copy relative path", run: () => this.copy(this.relative(path)) },
       { label: "Open in Explorer", run: () => invoke("reveal_entry", { path }).catch((err) => toast(explain(err))) },
+      { label: "Open in IDE", run: () => this.onOpenInIde(path) },
     );
     this.showMenu(items, e.clientX, e.clientY);
   }
 
-  private showMenu(items: (MenuItem | null)[], x: number, y: number) {
+  showMenu(items: (MenuItem | null)[], x: number, y: number) {
     this.menuItems = [];
     this.menu.replaceChildren();
     for (const it of items) {

@@ -53,7 +53,13 @@ fn build_command(kind: &str) -> Result<CommandBuilder, String> {
                     .or_else(|_| which::which("powershell"))
                     .map_err(|e| e.to_string())?;
                 let mut cmd = CommandBuilder::new(shell);
-                cmd.arg("-NoLogo");
+                // UTF-8 console: otherwise programs print "●", Cyrillic and the like as "?".
+                cmd.args([
+                    "-NoLogo",
+                    "-NoExit",
+                    "-Command",
+                    "[Console]::OutputEncoding = [Text.Encoding]::UTF8; $OutputEncoding = [Text.Encoding]::UTF8",
+                ]);
                 Ok(cmd)
             }
             #[cfg(not(windows))]
@@ -169,4 +175,19 @@ pub fn pty_kill(state: State<'_, PtyState>, id: u32) -> Result<(), String> {
         let _ = s.child.kill();
     }
     Ok(())
+}
+
+/// Lets Ctrl+C stop programs in the tabs. "Ignore Ctrl+C" is inherited from whatever started Tern
+/// (a terminal running a background job, for one), and every shell would inherit it in turn.
+pub fn allow_ctrl_c() {
+    #[cfg(windows)]
+    {
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn SetConsoleCtrlHandler(handler: *const core::ffi::c_void, add: i32) -> i32;
+        }
+        unsafe {
+            SetConsoleCtrlHandler(std::ptr::null(), 0);
+        }
+    }
 }

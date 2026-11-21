@@ -4,6 +4,17 @@ import { isImage } from "./attach";
 
 const baseName = (p: string) => p.split(/[\\/]/).pop() || p;
 const isMarkdown = (p: string) => /\.(md|markdown)$/i.test(p);
+const isHtml = (p: string) => /\.html?$/i.test(p);
+/** Files with a second, rendered view. */
+const hasPreview = (p: string) => isMarkdown(p) || isHtml(p);
+
+export interface OpenOptions {
+  focus?: boolean;
+  /** Jump to this place (1-based line). */
+  at?: { line: number; col: number; len: number };
+  /** Open the rendered view (HTML preview / Markdown) rather than the text. */
+  preview?: boolean;
+}
 const samePath = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
 type Mode = "code" | "preview" | "image" | "message";
@@ -33,6 +44,11 @@ export class Editor {
 
   /** Opened, closed or saved: the session remembers the open file. */
   onChange: () => void = () => {};
+  /** The folder an HTML preview is served from (its project), for root-relative links. */
+  previewRoot: (path: string) => string = (p) => p.replace(/[\\/][^\\/]*$/, "");
+  /** The folder the HTML preview serves, while one is shown. */
+  private servedRoot: string | null = null;
+  private reloadTimer = 0;
 
   constructor(private panel: HTMLElement) {
     this.head = panel.querySelector(".ed-head")!;
@@ -43,7 +59,7 @@ export class Editor {
     this.body = panel.querySelector(".ed-body")!;
 
     panel.querySelector(".ed-close")!.addEventListener("click", () => this.close());
-    this.modeBtn.addEventListener("click", () => this.toggleMarkdown());
+    this.modeBtn.addEventListener("click", () => this.toggleMode());
     this.bar.addEventListener("click", (e) => {
       const b = (e.target as HTMLElement).closest<HTMLElement>("[data-choice]");
       if (!b || !this.pending) return;
@@ -64,8 +80,11 @@ export class Editor {
     return this.path !== null;
   }
 
-  async open(path: string, opts: { focus?: boolean } = {}) {
+  async open(path: string, opts: OpenOptions = {}) {
     if (this.path && samePath(this.path, path)) {
+      if (opts.at && this.mode === "preview") await this.toggleMode();
+      else if (opts.preview && this.mode === "code") await this.toggleMode();
+      if (opts.at) this.code?.goto(opts.at.line, opts.at.col, opts.at.len);
       if (opts.focus !== false) this.focus();
       return;
     }
@@ -77,7 +96,7 @@ export class Editor {
     this.nameEl.textContent = baseName(path);
     this.dirEl.textContent = path.slice(0, path.length - baseName(path).length).replace(/[\\/]$/, "");
     this.head.title = path;
-    this.modeBtn.hidden = !isMarkdown(path);
+    this.modeBtn.hidden = !hasPreview(path);
 
     if (isImage(path)) {
       this.mode = "image";
@@ -87,7 +106,9 @@ export class Editor {
       img.onerror = () => this.message("Can't show this image.");
       this.body.replaceChildren(img);
     } else {
-      await this.load(isMarkdown(path) ? "preview" : "code", opts.focus !== false);
+      const preview = !opts.at && (opts.preview || isMarkdown(path));
+      await this.load(preview ? "preview" : "code", opts.focus !== false);
+      if (opts.at && this.path === path) this.code?.goto(opts.at.line, opts.at.col, opts.at.len);
     }
     this.onChange();
   }
@@ -134,6 +155,7 @@ export class Editor {
   }
 
   private async showPreview(text: string) {
+    if (isHtml(this.path!)) return this.showHtml();
     const [{ marked }, { default: DOMPurify }] = await Promise.all([import("marked"), import("dompurify")]);
     // Sanitised: a Markdown file must never be able to run script inside Tern.
     const html = DOMPurify.sanitize(await marked.parse(text), { USE_PROFILES: { html: true } });
@@ -152,7 +174,32 @@ export class Editor {
     this.modeBtn.textContent = "text";
   }
 
-  private async toggleMarkdown() {
+  /** The page as a browser shows it, from Tern's local preview server. */
+  private async showHtml() {
+    const path = this.path!;
+    const root = this.previewRoot(path);
+    let url: string;
+    try {
+      url = await invoke<string>("preview_url", { root, file: path });
+    } catch (err) {
+      this.message(`Can't preview this page: ${err}`);
+      return;
+    }
+    if (this.path !== path) return;
+    const frame = document.createElement("iframe");
+    frame.className = "html-preview";
+    // Its own origin (127.0.0.1), so the page can't reach into Tern; no pop-up windows.
+    frame.setAttribute("sandbox", "allow-scripts allow-forms allow-same-origin allow-modals");
+    frame.src = url;
+    this.code?.destroy();
+    this.code = null;
+    this.body.replaceChildren(frame);
+    this.servedRoot = root;
+    this.mode = "preview";
+    this.modeBtn.textContent = "text";
+  }
+
+  private async toggleMode() {
     if (!this.path) return;
     if (this.mode === "preview") {
       await this.showCode(this.savedText);
@@ -175,7 +222,7 @@ export class Editor {
 
   focus() {
     if (this.code) this.code.view.focus();
-    else this.body.querySelector<HTMLElement>(".md-preview")?.focus();
+    else this.body.querySelector<HTMLElement>(".md-preview, .html-preview")?.focus();
   }
 
   async save(force = false): Promise<boolean> {
@@ -209,6 +256,16 @@ export class Editor {
 
   /** Called with the paths the watcher reports. */
   async onDiskChange(paths: string[]) {
+    if (this.path && this.mode === "preview" && isHtml(this.path) && this.servedRoot) {
+      const root = this.servedRoot.toLowerCase();
+      if (paths.some((p) => p.toLowerCase().startsWith(root))) {
+        clearTimeout(this.reloadTimer);
+        this.reloadTimer = window.setTimeout(() => {
+          const f = this.body.querySelector<HTMLIFrameElement>(".html-preview");
+          if (f) f.src = f.src;
+        }, 150);
+      }
+    }
     if (!this.path || !paths.some((p) => samePath(p, this.path!))) return;
     if (this.mode === "image") {
       const img = this.body.querySelector<HTMLImageElement>("img");
@@ -240,7 +297,7 @@ export class Editor {
     this.mtime = file.mtime;
     this.savedText = file.text;
     if (this.mode === "code" && this.code) this.code.replace(file.text);
-    else if (this.mode === "preview") this.showPreview(file.text);
+    else if (this.mode === "preview" && !isHtml(this.path!)) this.showPreview(file.text);
     this.setDirty(false);
   }
 
@@ -275,6 +332,7 @@ export class Editor {
   }
 
   private teardown() {
+    this.servedRoot = null;
     this.code?.destroy();
     this.code = null;
     this.body.replaceChildren();

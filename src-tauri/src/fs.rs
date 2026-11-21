@@ -4,7 +4,7 @@ use ignore::WalkBuilder;
 use serde::Serialize;
 
 /// Folders that are hidden from the tree unless the user asks to see them.
-const SERVICE_DIRS: &[&str] = &[
+pub(crate) const SERVICE_DIRS: &[&str] = &[
     ".git",
     "node_modules",
     ".venv",
@@ -14,6 +14,20 @@ const SERVICE_DIRS: &[&str] = &[
     "__pycache__",
     ".idea",
 ];
+
+/// A recursive walk of a project the way the tree shows it: .gitignore respected, service folders
+/// skipped. Used by quick open and project search.
+pub(crate) fn project_walker(root: &Path) -> WalkBuilder {
+    let mut w = WalkBuilder::new(root);
+    w.hidden(false)
+        .git_ignore(true)
+        .git_global(true)
+        .git_exclude(true)
+        .require_git(false)
+        .parents(true)
+        .filter_entry(|d| !SERVICE_DIRS.contains(&d.file_name().to_string_lossy().as_ref()));
+    w
+}
 
 #[derive(Serialize)]
 pub struct Entry {

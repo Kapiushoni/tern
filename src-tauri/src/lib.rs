@@ -3,8 +3,11 @@ mod files;
 mod fs;
 mod git;
 mod hooks;
+mod preview;
 mod pty;
+mod search;
 mod session;
+mod tools;
 mod voice;
 mod watch;
 
@@ -16,7 +19,10 @@ pub fn run() {
         .manage(pty::PtyState::default())
         .manage(watch::WatchState::default())
         .manage(voice::VoiceState::default())
+        .manage(search::SearchState::default())
+        .manage(preview::PreviewState::default())
         .setup(|app| {
+            pty::allow_ctrl_c();
             attach::cleanup_old_pastes();
             voice::init();
             let state = hooks::start(app.handle());
@@ -45,6 +51,15 @@ pub fn run() {
             session::session_load,
             session::session_save,
             session::claude_session_exists,
+            search::list_files,
+            search::search_text,
+            search::search_cancel,
+            preview::preview_url,
+            tools::ide_list,
+            tools::ide_open,
+            tools::run_detect,
+            tools::run_candidates,
+            tools::run_save,
             voice::voice_models,
             voice::voice_mics,
             voice::voice_download,

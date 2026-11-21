@@ -86,8 +86,12 @@ export class Tabs {
     };
   }
 
-  /** Opens a tab. `resume` is a session id or "continue". */
-  async open(kind: TermKind, cwd: string, opts: { resume?: string; focus?: boolean; images?: Record<number, string> } = {}) {
+  /** Opens a tab. `resume` is a session id or "continue"; `run` is typed into a shell once it starts. */
+  async open(
+    kind: TermKind,
+    cwd: string,
+    opts: { resume?: string; focus?: boolean; images?: Record<number, string>; run?: string; label?: string } = {},
+  ) {
     const key = newKey();
     const el = document.createElement("div");
     el.className = `tab ${kind}`;
@@ -97,7 +101,7 @@ export class Tabs {
       `<span class="dot"></span><span class="kind"></span><span class="dir"></span>` +
       `<button class="close" title="Close (Ctrl+W)" tabindex="-1">×</button>`;
     el.querySelector(".kind")!.textContent = kind;
-    el.querySelector(".dir")!.textContent = baseName(cwd);
+    el.querySelector(".dir")!.textContent = opts.label ?? baseName(cwd);
     this.strip.append(el);
 
     const pane = document.createElement("div");
@@ -118,6 +122,8 @@ export class Tabs {
     this.tabs.push(tab);
     if (opts.focus !== false || !this.active) this.activate(tab);
     await this.spawn(tab, opts.resume);
+    // The shell reads it as soon as its prompt is up (ConPTY holds the input until then).
+    if (opts.run) tab.term.send(opts.run + "\r");
     this.onChange();
   }
 
