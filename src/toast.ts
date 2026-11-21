@@ -11,7 +11,7 @@ export function setTypewriter(on: boolean) {
 
 const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-export function toast(text: string, ms = 2600) {
+export function toast(text: string, ms = 2600, opts: { instant?: boolean } = {}) {
   if (!el) {
     el = document.createElement("div");
     el.id = "toast";
@@ -20,7 +20,7 @@ export function toast(text: string, ms = 2600) {
   }
   clearInterval(typing);
   el.setAttribute("aria-label", text);
-  if (typewriter && !reducedMotion() && text.length < 160) {
+  if (typewriter && !opts.instant && !reducedMotion() && text.length < 160) {
     // About 0.3 s for a typical message, however long it is.
     const step = Math.max(1, Math.ceil(text.length / 24));
     let shown = 0;

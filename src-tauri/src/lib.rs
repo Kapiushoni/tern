@@ -17,6 +17,8 @@ use tauri::Manager;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(pty::PtyState::default())
         .manage(watch::WatchState::default())
         .manage(voice::VoiceState::default())
@@ -70,6 +72,8 @@ pub fn run() {
             voice::voice_mics,
             voice::voice_download,
             voice::voice_download_cancel,
+            voice::voice_pending,
+            voice::voice_pending_done,
             voice::voice_delete_model,
             voice::voice_start,
             voice::voice_stop,

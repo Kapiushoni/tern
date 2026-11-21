@@ -18,6 +18,7 @@ import { setLang, t, tt } from "./i18n";
 import { InstallScreen, showSplash, StartScreen } from "./screens";
 import { setSound } from "./sound";
 import { setTypewriter, toast } from "./toast";
+import { startUpdateChecks } from "./updates";
 
 const app = document.getElementById("app")!;
 const root = document.documentElement;
@@ -472,6 +473,8 @@ window.addEventListener(
   if (tabs.count === 0) showStart();
   if (saved?.editorFile) await editor.open(saved.editorFile, { focus: false });
 
+  startUpdateChecks();
+  voice.downloadPending();
   if (store.value.claude.installPrompt && !(await invoke<string | null>("claude_status").catch(() => "?"))) {
     installScreen.show();
   }

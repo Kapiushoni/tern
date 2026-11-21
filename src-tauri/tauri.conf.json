@@ -25,13 +25,24 @@
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": { "allow": ["**"], "requireLiteralLeadingDot": false }
+        "scope": {
+          "allow": [
+            "**"
+          ],
+          "requireLiteralLeadingDot": false
+        }
       }
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": [
+      "nsis",
+      "app",
+      "dmg",
+      "deb",
+      "appimage"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -41,7 +52,23 @@
     ],
     "windows": {
       "nsis": {
-        "installMode": "currentUser"
+        "installMode": "currentUser",
+        "installerHooks": "./windows/hooks.nsh"
+      }
+    },
+    "createUpdaterArtifacts": true,
+    "publisher": "Tern",
+    "shortDescription": "Fast, minimal terminal workspace for Claude Code",
+    "category": "DeveloperTool"
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDFCNjMzN0ZDQTA0NTE5OEIKUldTTEdVV2cvRGRqRzh1Wnk3NUtuckFPbzJDZUQrdlhkcU5EUDFybTR3bUtFSWNqVy9hSDdPb0MK",
+      "endpoints": [
+        "https://github.com/Kapiushoni/tern/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
       }
     }
   }

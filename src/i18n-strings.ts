@@ -199,6 +199,13 @@ export const RU: Record<string, string> = {
   "fast, good for most speech": "быстрая, подходит для большинства случаев",
   "more accurate, slower": "точнее, но медленнее",
   "auto-detect (slower)": "определять сам (медленнее)",
+  // updates
+  "Install and restart": "Установить и перезапустить",
+  "Tern {version} is available": "Доступна новая версия Tern {version}",
+  "Downloading the update… {pct}%": "Скачиваю обновление… {pct}%",
+  "Installing…": "Устанавливаю…",
+  "The update failed: {error}": "Не удалось обновиться: {error}",
+  "Downloading the speech model… {pct}%": "Скачиваю модель распознавания… {pct}%",
 };
 
 export const UK: Record<string, string> = {
@@ -388,4 +395,10 @@ export const UK: Record<string, string> = {
   "fast, good for most speech": "швидка, підходить для більшості випадків",
   "more accurate, slower": "точніша, але повільніша",
   "auto-detect (slower)": "визначати самостійно (повільніше)",
+  "Install and restart": "Встановити й перезапустити",
+  "Tern {version} is available": "Доступна нова версія Tern {version}",
+  "Downloading the update… {pct}%": "Завантажую оновлення… {pct}%",
+  "Installing…": "Встановлюю…",
+  "The update failed: {error}": "Не вдалося оновитися: {error}",
+  "Downloading the speech model… {pct}%": "Завантажую модель розпізнавання… {pct}%",
 };

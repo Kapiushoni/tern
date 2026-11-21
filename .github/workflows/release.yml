@@ -1,0 +1,91 @@
+# Builds the installers for Windows, macOS and Linux when a version tag (v1.2.3) is pushed, and
+# puts them in a draft GitHub release together with latest.json for Tern's auto-update.
+# Publish the draft by hand once the builds look right; from then on Tern offers it as an update.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            args: ""
+          - os: macos-latest
+            args: "--target aarch64-apple-darwin"
+          - os: macos-latest
+            args: "--target x86_64-apple-darwin"
+          - os: ubuntu-22.04
+            args: ""
+    runs-on: ${{ matrix.os }}
+    env:
+      # whisper.cpp for any CPU of the family, not just the build machine's.
+      GGML_NATIVE: "OFF"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ contains(matrix.args, 'x86_64-apple') && 'x86_64-apple-darwin' || contains(matrix.args, 'aarch64-apple') && 'aarch64-apple-darwin' || '' }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          key: ${{ matrix.args }}
+
+      - name: Linux packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev \
+            libayatana-appindicator3-dev patchelf libasound2-dev libclang-dev cmake
+
+      - name: x86-64 baseline for whisper.cpp (AVX2)
+        if: runner.os != 'macOS' || contains(matrix.args, 'x86_64')
+        shell: bash
+        run: |
+          echo "GGML_AVX=ON" >> "$GITHUB_ENV"
+          echo "GGML_AVX2=ON" >> "$GITHUB_ENV"
+          echo "GGML_FMA=ON" >> "$GITHUB_ENV"
+          echo "GGML_F16C=ON" >> "$GITHUB_ENV"
+
+      - name: Windows build environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Windows compiler flags
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          # cmake-rs drops /O2 from the Release flags for Visual Studio builds; put it back.
+          echo "CMAKE_C_FLAGS_RELEASE=/O2 /Ob2 /DNDEBUG" >> "$GITHUB_ENV"
+          echo "CMAKE_CXX_FLAGS_RELEASE=/O2 /Ob2 /DNDEBUG /utf-8" >> "$GITHUB_ENV"
+          echo "LIBCLANG_PATH=C:\\Program Files\\LLVM\\bin" >> "$GITHUB_ENV"
+
+      - run: npm ci
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Tern ${{ github.ref_name }}"
+          releaseBody: "See the changes below. Installers are not code-signed yet — see the README."
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}

@@ -205,6 +205,31 @@ export class Voice {
     this.clock = window.setInterval(draw, 1000);
   }
 
+  /** The installer asked for voice input: fetch the model quietly, showing progress. */
+  async downloadPending() {
+    const model = await invoke<string | null>("voice_pending").catch(() => null);
+    if (!model || this.downloading) return;
+    this.downloading = true;
+    const events = new Channel<{ type: "progress"; done: number; total: number }>();
+    let last = -1;
+    events.onmessage = (e) => {
+      const pct = e.total ? Math.floor((e.done / e.total) * 100) : 0;
+      if (pct === last) return;
+      last = pct;
+      toast(t("Downloading the speech model… {pct}%", { pct }), 4000, { instant: true });
+    };
+    try {
+      await invoke("voice_download", { model, onEvent: events });
+      await invoke("voice_pending_done", { model });
+      this.settings.model = model;
+      this.onChange();
+      toast(t("Speech model ready — press {key} to talk", { key: showCombo(this.key) }), 5000);
+    } catch {
+      // Offline or cancelled: the marker stays, so it tries again next start.
+    }
+    this.downloading = false;
+  }
+
   // ── options / model download ──────────────────────────
 
   async openPop() {

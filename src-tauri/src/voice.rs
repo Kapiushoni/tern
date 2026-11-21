@@ -165,6 +165,31 @@ fn download(url: &str, to: &PathBuf, cancel: &AtomicBool, events: &Channel<Downl
     Ok(())
 }
 
+/// A model the installer was asked to fetch ("Voice input" ticked): it leaves a marker file,
+/// and Tern downloads the model on first start, in the background.
+#[tauri::command]
+pub fn voice_pending(app: AppHandle) -> Option<String> {
+    let dir = models_dir(&app).ok()?;
+    MODELS
+        .iter()
+        .find(|m| dir.join(format!(".download-{}", m.0)).is_file() && !dir.join(m.1).is_file())
+        .map(|m| m.0.to_string())
+        .or_else(|| {
+            // Already there (or unknown): drop stale markers.
+            for m in MODELS {
+                let _ = std::fs::remove_file(dir.join(format!(".download-{}", m.0)));
+            }
+            None
+        })
+}
+
+#[tauri::command]
+pub fn voice_pending_done(app: AppHandle, model: String) {
+    if let Ok(dir) = models_dir(&app) {
+        let _ = std::fs::remove_file(dir.join(format!(".download-{model}")));
+    }
+}
+
 #[tauri::command]
 pub fn voice_download_cancel(state: State<'_, VoiceState>) {
     if let Some(c) = state.downloading.lock().unwrap().as_ref() {
