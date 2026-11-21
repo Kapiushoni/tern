@@ -5,6 +5,7 @@ mod git;
 mod hooks;
 mod pty;
 mod session;
+mod voice;
 mod watch;
 
 use tauri::Manager;
@@ -14,8 +15,10 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(pty::PtyState::default())
         .manage(watch::WatchState::default())
+        .manage(voice::VoiceState::default())
         .setup(|app| {
             attach::cleanup_old_pastes();
+            voice::init();
             let state = hooks::start(app.handle());
             app.manage(state);
             Ok(())
@@ -42,6 +45,14 @@ pub fn run() {
             session::session_load,
             session::session_save,
             session::claude_session_exists,
+            voice::voice_models,
+            voice::voice_mics,
+            voice::voice_download,
+            voice::voice_download_cancel,
+            voice::voice_delete_model,
+            voice::voice_start,
+            voice::voice_stop,
+            voice::voice_cancel,
         ])
         .run(tauri::generate_context!())
         .expect("failed to start Tern");

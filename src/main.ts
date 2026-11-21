@@ -8,6 +8,7 @@ import { setTerminalTheme, TermKind, ThemeName } from "./terminal";
 import { Tabs, SavedTab } from "./tabs";
 import { Attachments } from "./attach";
 import { Editor } from "./editor";
+import { Voice, VoiceSettings } from "./voice";
 
 const app = document.getElementById("app")!;
 const termHost = document.getElementById("terminal-host")!;
@@ -26,6 +27,7 @@ const tree = new FileTree(document.getElementById("tree")!);
 const tabs = new Tabs(document.getElementById("tabs")!, panes);
 const attachments = new Attachments(termHost, panes, tabs);
 const editor = new Editor(document.getElementById("editor")!);
+const voice = new Voice(tabs, attachments.tools, termHost);
 tree.onDragOut = (path, target) => {
   if (target?.closest("#terminal-host")) tabs.attach([path]);
   else if (target?.closest("#editor")) editor.open(path);
@@ -46,6 +48,7 @@ interface Saved {
   editorFile?: string;
   editorH?: number;
   theme?: ThemeName;
+  voice?: VoiceSettings;
 }
 
 function baseName(p: string) {
@@ -68,11 +71,13 @@ function save() {
       editorFile: editor.path ?? undefined,
       editorH: Number.isFinite(eh) ? eh : undefined,
       theme,
+      voice: voice.settings,
     };
     invoke("session_save", { json: JSON.stringify(data) }).catch(() => {});
   }, 300);
 }
 tabs.onChange = save;
+voice.onChange = save;
 
 // ── watching the disk: tree, git colours and the open file follow outside edits ──
 let watchKey = "";
@@ -288,6 +293,7 @@ window.addEventListener(
   if (saved?.editorH) document.documentElement.style.setProperty("--editor-h", `${saved.editorH}%`);
   // Before any terminal is created, so they all start in the right colours.
   applyTheme(saved?.theme === "light" ? "light" : "dark");
+  if (saved?.voice?.model) voice.settings = { ...voice.settings, ...saved.voice };
 
   const restore = saved?.tabs ?? [];
   const activeIdx = Math.min(Math.max(saved?.active ?? 0, 0), restore.length - 1);

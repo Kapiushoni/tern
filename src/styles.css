@@ -317,10 +317,16 @@ kbd {
   pointer-events: none;
 }
 /* "+" at the right end of Claude Code's prompt line; attach.ts sets its position. */
-#btn-attach {
+#prompt-tools {
   position: absolute;
   left: 0; top: 0;
   z-index: 5;
+  display: flex;
+  gap: 4px;
+  transform: translateX(-100%);
+}
+#prompt-tools[hidden] { display: none; }
+#btn-attach, #btn-voice {
   width: 20px; height: 20px;
   display: grid; place-items: center;
   padding: 0;
@@ -330,7 +336,6 @@ kbd {
   cursor: pointer;
   transition: border-color 0.12s, box-shadow 0.12s;
 }
-#btn-attach[hidden] { display: none; }
 #btn-attach svg {
   width: 13px; height: 13px;
   fill: none; stroke: var(--accent); stroke-width: 2.4; stroke-linecap: round;
@@ -577,3 +582,110 @@ body.dragging, body.dragging * { cursor: copy !important; }
 .split-line.y { height: 2px; margin-top: -1px; }
 body.resizing-x, body.resizing-x * { cursor: col-resize !important; }
 body.resizing-y, body.resizing-y * { cursor: row-resize !important; }
+
+/* ── voice input ──────────────────────── */
+#btn-voice svg {
+  width: 13px; height: 13px;
+  fill: none; stroke: var(--dim); stroke-width: 2; stroke-linecap: round;
+}
+#btn-voice:hover { border-color: var(--accent); box-shadow: var(--glow); }
+#btn-voice:hover svg { stroke: var(--accent); }
+#btn-voice.rec { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 calc(4px + var(--voice-level, 0) * 10px) var(--accent); }
+#btn-voice.rec svg { stroke: var(--accent); }
+#btn-voice.busy svg { stroke: var(--accent); animation: vo-pulse 0.9s ease-in-out infinite; }
+
+/* A soft magenta edge along the bottom of the terminal while listening. */
+#terminal-host.listening::after {
+  content: "";
+  position: absolute; left: 0; right: 0; bottom: 0;
+  height: 2px;
+  z-index: 6;
+  background: var(--accent);
+  box-shadow: 0 0 calc(6px + var(--voice-level, 0) * 14px) var(--accent);
+  pointer-events: none;
+}
+
+#voice-pill {
+  position: absolute;
+  left: 50%; bottom: 12px;
+  z-index: 7;
+  transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px;
+  padding: 5px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--fg);
+  font-size: 12px;
+  box-shadow: var(--shadow), var(--glow);
+  pointer-events: none;
+  white-space: nowrap;
+}
+#voice-pill[hidden] { display: none; }
+#voice-pill .vp-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: var(--glow); animation: vo-pulse 1.2s ease-in-out infinite; }
+#voice-pill .vp-bars { display: flex; align-items: center; gap: 2px; height: 14px; }
+#voice-pill .vp-bars i {
+  width: 2px;
+  height: calc(3px + var(--voice-level, 0) * 11px);
+  background: var(--accent);
+  transition: height 0.06s linear;
+}
+#voice-pill .vp-bars i:nth-child(2), #voice-pill .vp-bars i:nth-child(4) { height: calc(3px + var(--voice-level, 0) * 7px); }
+#voice-pill .vp-bars i:nth-child(1), #voice-pill .vp-bars i:nth-child(5) { height: calc(2px + var(--voice-level, 0) * 4px); }
+#voice-pill .vp-time { font-variant-numeric: tabular-nums; }
+#voice-pill .vp-hint { color: var(--dim); }
+#voice-pill .vp-dots { display: flex; gap: 3px; }
+#voice-pill .vp-dots i { width: 4px; height: 4px; border-radius: 50%; background: var(--accent); animation: vo-pulse 0.9s ease-in-out infinite; }
+#voice-pill .vp-dots i:nth-child(2) { animation-delay: 0.15s; }
+#voice-pill .vp-dots i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes vo-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+#voice-pop {
+  position: fixed;
+  z-index: 60;
+  width: 300px;
+  padding: 12px;
+  display: flex; flex-direction: column; gap: 6px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+  font-size: 12px;
+  color: var(--fg);
+}
+#voice-pop[hidden] { display: none; }
+#voice-pop .vo-title { color: var(--accent); text-transform: lowercase; letter-spacing: 0.04em; }
+#voice-pop .vo-note { color: var(--dim); line-height: 1.45; }
+#voice-pop .vo-label { margin-top: 6px; color: var(--faint); font-size: 11px; }
+#voice-pop .vo-model { display: flex; align-items: center; gap: 8px; padding: 3px 0; cursor: pointer; }
+#voice-pop .vo-model input { accent-color: var(--accent); margin: 0; }
+#voice-pop .vo-mtext { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+#voice-pop .vo-mdesc { color: var(--dim); font-size: 11px; }
+#voice-pop .vo-ok { color: var(--git-new); }
+#voice-pop .vo-del { padding: 0 4px; border: 0; background: none; color: var(--faint); font: inherit; font-size: 11px; cursor: pointer; }
+#voice-pop .vo-del:hover { color: var(--git-conflict); }
+#voice-pop .vo-dl { display: flex; flex-direction: column; gap: 5px; margin-top: 2px; }
+#voice-pop .vo-btn {
+  padding: 5px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+#voice-pop .vo-btn:hover { box-shadow: var(--glow); }
+#voice-pop .vo-bar { height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; }
+#voice-pop .vo-bar[hidden] { display: none; }
+#voice-pop .vo-bar i { display: block; height: 100%; width: 0; background: var(--accent); box-shadow: var(--glow); transition: width 0.15s linear; }
+#voice-pop .vo-status { color: var(--dim); font-size: 11px; font-variant-numeric: tabular-nums; }
+#voice-pop .vo-select {
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+}
+#voice-pop .vo-select:focus { outline: none; border-color: var(--accent); }

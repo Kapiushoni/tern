@@ -98,6 +98,8 @@ export class Attachments {
   private plus: HTMLButtonElement;
   private card: HTMLElement;
   private viewer: HTMLElement;
+  /** The row of buttons at the end of the prompt line. */
+  readonly tools: HTMLElement;
   private frame = 0;
   private unwatch: (() => void) | null = null;
   private hit: Hit | null = null;
@@ -119,10 +121,14 @@ export class Attachments {
     this.plus.title = "Attach files (Ctrl+Shift+A) — or paste / drop them";
     this.plus.tabIndex = -1;
     this.plus.innerHTML = PLUS;
-    this.plus.hidden = true;
     this.plus.addEventListener("mousedown", (e) => e.preventDefault());
     this.plus.addEventListener("click", () => this.pick());
-    panes.append(this.plus);
+    // Buttons that sit at the right end of Claude's prompt line (the mic joins later).
+    this.tools = document.createElement("div");
+    this.tools.id = "prompt-tools";
+    this.tools.hidden = true;
+    this.tools.append(this.plus);
+    panes.append(this.tools);
 
     tabs.onTerm = () => this.follow();
     new ResizeObserver(() => this.place()).observe(panes);
@@ -208,14 +214,14 @@ export class Attachments {
       const box = term && this.tabs.activeKind === "claude" ? inputBox(term) : null;
       const geo = term && this.geometry(term);
       if (!term || !box || !geo) {
-        this.plus.hidden = true;
+        this.tools.hidden = true;
         return;
       }
       // Right end of the prompt line, inside the input box: that part is nearly always empty.
       const y = geo.top + (box.prompt - term.buffer.active.viewportY) * geo.cellH;
-      this.plus.style.top = `${y + (geo.cellH - 20) / 2}px`;
-      this.plus.style.left = `${geo.left + geo.screen.width - 26}px`;
-      this.plus.hidden = false;
+      this.tools.style.top = `${y + (geo.cellH - 20) / 2}px`;
+      this.tools.style.left = `${geo.left + geo.screen.width - 6}px`;
+      this.tools.hidden = false;
     });
   }
 

@@ -195,6 +195,11 @@ export class Tabs {
     return this.active?.term?.term ?? null;
   }
 
+  /** The active tab's terminal session (stays valid if the user switches tabs later). */
+  get activeSession() {
+    return this.active?.term ?? null;
+  }
+
   get activeKind() {
     return this.active?.kind ?? null;
   }
