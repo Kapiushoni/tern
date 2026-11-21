@@ -59,7 +59,10 @@
     "createUpdaterArtifacts": true,
     "publisher": "Tern",
     "shortDescription": "Fast, minimal terminal workspace for Claude Code",
-    "category": "DeveloperTool"
+    "category": "DeveloperTool",
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    }
   },
   "plugins": {
     "updater": {
