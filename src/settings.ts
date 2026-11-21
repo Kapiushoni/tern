@@ -23,6 +23,8 @@ export interface Settings {
   ide: string | null;
   claude: { path: string | null; args: string[]; installPrompt: boolean };
   terminal: { shell: string | null; scrollback: number; gpu: boolean; padding: number };
+  /** Window mode: "tiling" (windows share the space, like Hyprland) or "floating" (free). */
+  windows: { layout: "tiling" | "floating" };
   tree: { hiddenFolders: string[] };
   images: { keepDays: number };
   /** Key combinations, e.g. "Ctrl+Shift+F" (by key position, so any keyboard layout works). */
@@ -42,6 +44,7 @@ export const DEFAULTS: Settings = {
   ide: null,
   claude: { path: null, args: [], installPrompt: true },
   terminal: { shell: null, scrollback: 10000, gpu: false, padding: 8 },
+  windows: { layout: "tiling" },
   tree: { hiddenFolders: [".git", "node_modules", ".venv", "venv", "target", "build", "__pycache__", ".idea"] },
   images: { keepDays: 7 },
   keys: {
@@ -96,6 +99,7 @@ export function normalize(raw: unknown): Settings {
   s.terminal.shell = str(s.terminal.shell);
   if (!["en", "ru", "uk"].includes(s.language)) s.language = "en";
   if (s.theme !== "light") s.theme = "dark";
+  if (s.windows.layout !== "floating") s.windows.layout = "tiling";
   if (!/^#[0-9a-f]{6}$/i.test(s.accent)) s.accent = DEFAULTS.accent;
   s.font.size = clamp(Math.round(s.font.size), 9, 32);
   s.sound.volume = clamp(Math.round(s.sound.volume), 0, 100);

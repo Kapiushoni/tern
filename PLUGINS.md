@@ -115,6 +115,10 @@ works there too, and Tern's colours are available as CSS variables: `var(--bg)`,
 Inline everything (styles, scripts, images as `data:` URLs): windows can't load other files or
 anything from the internet — use `tern.fetch` for data.
 
+Voice input works in your window with no code: when someone presses Alt+Z while a text field of
+your window has the focus, the recognised text is typed into it (an `input` event fires, as if
+typed). Tern's voice and Esc keys keep working while your window has the focus.
+
 See [`plugins/todo`](plugins/todo) for a complete example.
 
 ## Themes

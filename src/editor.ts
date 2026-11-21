@@ -223,6 +223,13 @@ export class Editor {
     this.body.replaceChildren(m);
   }
 
+  /** Types text at the cursor of the open file (voice input). False if no code view is open. */
+  insertText(text: string): boolean {
+    if (!this.code) return false;
+    this.code.insert(text);
+    return true;
+  }
+
   focus() {
     if (this.code) this.code.view.focus();
     else this.body.querySelector<HTMLElement>(".md-preview, .html-preview")?.focus();

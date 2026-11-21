@@ -253,6 +253,12 @@ export class Tabs {
     return this.active?.term ?? null;
   }
 
+  /** The terminal session whose tab contains this element (focus inside a tile, say). */
+  sessionFor(el: Element | null) {
+    if (!el) return null;
+    return this.tabs.find((t) => t.pane.contains(el))?.term ?? null;
+  }
+
   get activeKind() {
     return this.active?.kind ?? null;
   }
@@ -300,7 +306,10 @@ export class Tabs {
    * "Ask Claude about this file": puts the path into a Claude tab's input. Uses the active tab if
    * it is a Claude tab, else a Claude tab whose folder holds the file, else any Claude tab.
    */
-  async askClaude(path: string) {
+  async askClaude(paths: string | string[]) {
+    const all = Array.isArray(paths) ? paths : [paths];
+    const path = all[0];
+    if (!path) return;
     const inside = (t: Tab) => path.toLowerCase().startsWith(t.cwd.toLowerCase());
     let tab = this.active?.kind === "claude" ? this.active : undefined;
     tab ??= this.tabs.find((t) => t.kind === "claude" && inside(t)) ?? this.tabs.find((t) => t.kind === "claude");
@@ -312,7 +321,7 @@ export class Tabs {
     } else {
       this.activate(tab);
     }
-    await this.attach([path]);
+    await this.attach(all);
   }
 
   pasteText(text: string) {
@@ -407,6 +416,11 @@ export class Tabs {
   }
 
   // ── tiling mode ───────────────────────────────────────
+
+  /** How windows are laid out in window mode. */
+  setLayout(mode: "tiling" | "floating") {
+    this.tiler.setMode(mode);
+  }
 
   get isTiled() {
     return this.tiled;

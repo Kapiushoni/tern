@@ -51,6 +51,7 @@ pub fn run() {
             fs::initial_dir,
             pty::pty_spawn,
             pty::pty_write,
+            pty::pty_write_bytes,
             pty::pty_resize,
             pty::pty_kill,
             session::session_load,

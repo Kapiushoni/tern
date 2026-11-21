@@ -247,6 +247,15 @@ export const RU: Record<string, string> = {
   "Claude Code · waiting for you": "Claude Code · ждёт вашего ответа",
   "Claude Code · finished": "Claude Code · закончил",
   "No matching fonts": "Таких шрифтов нет",
+  "Window mode": "Режим окон",
+  "tiling (like Hyprland)": "плитки (как Hyprland)",
+  "floating": "свободно",
+  "Ask Claude about {n} items": "Спросить Claude про {n} элем.",
+  "Copy paths": "Копировать пути",
+  "Copy relative paths": "Копировать относительные пути",
+  "Delete {n} items": "Удалить {n} элем.",
+  "Moved {n} items to the Recycle Bin": "В корзину перемещено: {n}",
+  "{n} items": "{n} элем.",
 };
 
 export const UK: Record<string, string> = {
@@ -480,4 +489,13 @@ export const UK: Record<string, string> = {
   "Claude Code · waiting for you": "Claude Code · чекає на вашу відповідь",
   "Claude Code · finished": "Claude Code · закінчив",
   "No matching fonts": "Таких шрифтів немає",
+  "Window mode": "Режим вікон",
+  "tiling (like Hyprland)": "плитки (як Hyprland)",
+  "floating": "вільно",
+  "Ask Claude about {n} items": "Запитати Claude про {n} елем.",
+  "Copy paths": "Копіювати шляхи",
+  "Copy relative paths": "Копіювати відносні шляхи",
+  "Delete {n} items": "Видалити {n} елем.",
+  "Moved {n} items to the Recycle Bin": "До кошика переміщено: {n}",
+  "{n} items": "{n} елем.",
 };

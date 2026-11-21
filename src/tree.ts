@@ -41,7 +41,12 @@ export class FileTree {
   private expanded = new Set<string>();
   /** Expanded folders per project root, so switching tabs keeps each tree as it was. */
   private memory = new Map<string, Set<string>>();
+  /** The row last clicked (rename, run ▶, new file go by it). */
   private selectedPath: string | null = null;
+  /** Everything selected (Ctrl+click, Shift+click, a drag box, Ctrl+A). */
+  private sel = new Set<string>();
+  /** Where a Shift+click range starts. */
+  private anchor: string | null = null;
   private git = new Map<string, GitState>();
   private refreshTimer = 0;
   private menu: HTMLElement;
@@ -53,9 +58,9 @@ export class FileTree {
   }
 
   /** A row was dragged out of the tree and dropped on `target` (the element under the pointer). */
-  onDragOut: (path: string, target: Element | null) => void = () => {};
+  onDragOut: (paths: string[], target: Element | null) => void = () => {};
   onOpen: (path: string) => void = () => {};
-  onAskClaude: (path: string) => void = () => {};
+  onAskClaude: (paths: string[]) => void = () => {};
   onOpenInIde: (path: string) => void = () => {};
   /** Items plugins add to the context menu. */
   extraMenuItems: (path: string) => MenuItem[] = () => [];
@@ -178,7 +183,7 @@ export class FileTree {
     if (root !== this.root) return; // another open() won the race
     this.el.replaceChildren(...frag.childNodes);
     this.el.scrollTop = scroll;
-    if (this.selectedPath) this.rowOf(this.selectedPath)?.classList.add("selected");
+    this.paintSelection();
   }
 
   /** `faint`: the folder itself is hidden, so everything in it is shown as hidden too. */
@@ -221,15 +226,57 @@ export class FileTree {
 
   // ── clicks and keys ───────────────────────────────────
 
-  private select(row: HTMLElement | null) {
-    this.el.querySelector(".node.selected")?.classList.remove("selected");
-    row?.classList.add("selected");
-    this.selectedPath = row?.dataset.path ?? null;
+  /** The selected paths, in tree order. */
+  get selection(): string[] {
+    const rows = [...this.el.querySelectorAll<HTMLElement>(".node[data-path]")].map((r) => r.dataset.path!);
+    const shown = rows.filter((p) => this.sel.has(p));
+    // Selected items inside a collapsed folder are not on screen but still selected.
+    return [...shown, ...[...this.sel].filter((p) => !rows.includes(p))];
+  }
+
+  /**
+   * single: just this row · toggle: add or remove it (Ctrl+click) · range: from the anchor to
+   * this row (Shift+click; Ctrl+Shift adds the range to what is selected).
+   */
+  private select(row: HTMLElement | null, how: "single" | "toggle" | "range" = "single", add = false) {
+    const path = row?.dataset.path ?? null;
+    if (!path) {
+      this.sel.clear();
+      this.selectedPath = null;
+    } else if (how === "toggle") {
+      if (this.sel.has(path)) this.sel.delete(path);
+      else this.sel.add(path);
+      this.selectedPath = path;
+      this.anchor = path;
+    } else if (how === "range" && this.anchor && this.rowOf(this.anchor)) {
+      const rows = [...this.el.querySelectorAll<HTMLElement>(".node[data-path]")];
+      const a = rows.findIndex((r) => r.dataset.path === this.anchor);
+      const b = rows.indexOf(row!);
+      if (!add) this.sel.clear();
+      for (const r of rows.slice(Math.min(a, b), Math.max(a, b) + 1)) this.sel.add(r.dataset.path!);
+      this.selectedPath = path;
+    } else {
+      this.sel = new Set([path]);
+      this.selectedPath = path;
+      this.anchor = path;
+    }
+    this.paintSelection();
+  }
+
+  private paintSelection() {
+    for (const r of this.el.querySelectorAll<HTMLElement>(".node[data-path]")) {
+      r.classList.toggle("selected", this.sel.has(r.dataset.path!));
+      r.classList.toggle("focus-row", r.dataset.path === this.selectedPath && this.sel.size > 1);
+    }
   }
 
   private async onClick(ev: MouseEvent) {
     const row = (ev.target as HTMLElement).closest<HTMLElement>(".node");
-    if (!row || row.querySelector("input")) return;
+    if (row?.querySelector("input")) return;
+    if (!row) return;
+    // Ctrl / Shift change the selection only; a plain click opens.
+    if (ev.ctrlKey || ev.metaKey) return this.select(row, ev.shiftKey ? "range" : "toggle", ev.shiftKey);
+    if (ev.shiftKey) return this.select(row, "range");
     this.select(row);
     if (row.classList.contains("dir")) await this.toggle(row);
     else this.onOpen(row.dataset.path!);
@@ -237,12 +284,23 @@ export class FileTree {
 
   private onKey(e: KeyboardEvent) {
     if ((e.target as HTMLElement).tagName === "INPUT") return;
+    if ((e.ctrlKey || e.metaKey) && e.code === "KeyA") {
+      this.sel = new Set([...this.el.querySelectorAll<HTMLElement>(".node[data-path]")].map((r) => r.dataset.path!));
+      this.paintSelection();
+      e.preventDefault();
+      return;
+    }
+    if (e.key === "Escape" && this.sel.size > 1) {
+      this.select(this.selectedPath ? this.rowOf(this.selectedPath) : null);
+      e.preventDefault();
+      return;
+    }
     const row = this.selectedPath ? this.rowOf(this.selectedPath) : null;
-    if (!row) return;
-    if (e.key === "F2") this.startRename(row);
-    else if (e.key === "Delete") this.trash(row.dataset.path!);
+    if (e.key === "Delete" && this.sel.size) this.trashMany(this.selection);
+    else if (!row) return;
+    else if (e.key === "F2") this.startRename(row);
     else if (e.key === "Enter") row.click();
-    else return;
+    else if (e.key !== "Delete") return;
     e.preventDefault();
   }
 
@@ -283,13 +341,31 @@ export class FileTree {
   private onContextMenu(e: MouseEvent) {
     e.preventDefault();
     const row = (e.target as HTMLElement).closest<HTMLElement>(".node");
+    // Right-click inside a multi-selection: actions for all of it.
+    if (row && this.sel.size > 1 && this.sel.has(row.dataset.path!)) {
+      const paths = this.selection;
+      const n = paths.length;
+      this.showMenu(
+        [
+          { label: t("Ask Claude about {n} items", { n }), run: () => this.onAskClaude(paths) },
+          null,
+          { label: t("Copy paths"), run: () => this.copy(paths.join("\n")) },
+          { label: t("Copy relative paths"), run: () => this.copy(paths.map((p) => this.relative(p)).join("\n")) },
+          null,
+          { label: t("Delete {n} items", { n }), hint: "Del", run: () => this.trashMany(paths) },
+        ],
+        e.clientX,
+        e.clientY,
+      );
+      return;
+    }
     this.select(row);
     const path = row?.dataset.path ?? this.root;
     const isDir = !row || row.classList.contains("dir");
     const dir = isDir ? path : parentOf(path);
     const items: (MenuItem | null)[] = [];
     if (row && !isDir) items.push({ label: t("Open"), run: () => this.onOpen(path) });
-    if (row) items.push({ label: isDir ? t("Ask Claude about this folder") : t("Ask Claude about this file"), run: () => this.onAskClaude(path) });
+    if (row) items.push({ label: isDir ? t("Ask Claude about this folder") : t("Ask Claude about this file"), run: () => this.onAskClaude([path]) });
     if (row) items.push(null);
     items.push(
       { label: t("New file"), run: () => this.startCreate(dir, false) },
@@ -442,6 +518,25 @@ export class FileTree {
     }
   }
 
+  private async trashMany(paths: string[]) {
+    if (paths.length === 1) return this.trash(paths[0]);
+    // Folders first absorb their own selected contents.
+    const top = paths.filter((p) => !paths.some((q) => q !== p && (key(p).startsWith(key(q) + "\\") || key(p).startsWith(key(q) + "/"))));
+    let done = 0;
+    for (const p of top) {
+      try {
+        await invoke("trash_entry", { path: p });
+        done++;
+      } catch (err) {
+        toast(explain(err));
+      }
+    }
+    if (done) toast(t("Moved {n} items to the Recycle Bin", { n: done }));
+    this.sel.clear();
+    this.selectedPath = null;
+    this.refreshSoon();
+  }
+
   private async move(path: string, toDir: string) {
     if (key(parentOf(path)) === key(toDir)) return;
     try {
@@ -466,11 +561,11 @@ export class FileTree {
   // ── dragging ──────────────────────────────────────────
 
   /** The folder a drop at this point would move into, or null if the point is not in the tree. */
-  private dropDir(target: Element | null, from: string): { dir: string; row: HTMLElement | null } | null {
+  private dropDir(target: Element | null, from: string[]): { dir: string; row: HTMLElement | null } | null {
     if (!target || !this.el.contains(target)) return null;
     const row = target.closest<HTMLElement>(".node");
     if (!row) return { dir: this.root, row: null };
-    if (row.dataset.path === from) return null;
+    if (from.includes(row.dataset.path!)) return null;
     if (row.classList.contains("dir")) return { dir: row.dataset.path!, row };
     const dir = parentOf(row.dataset.path!);
     return { dir, row: this.rowOf(dir) };
@@ -482,8 +577,12 @@ export class FileTree {
    */
   private onPointerDown(down: PointerEvent) {
     const row = (down.target as HTMLElement).closest<HTMLElement>(".node");
-    if (!row || down.button !== 0 || row.querySelector("input")) return;
+    if (down.button !== 0) return;
+    if (!row) return this.selectBox(down);
+    if (row.querySelector("input")) return;
     const path = row.dataset.path!;
+    // Dragging a selected row takes the whole selection along.
+    const paths = this.sel.has(path) && this.sel.size > 1 ? this.selection : [path];
     let ghost: HTMLElement | null = null;
     let over: HTMLElement | null = null;
     const highlight = (el: HTMLElement | null) => {
@@ -497,12 +596,12 @@ export class FileTree {
         if (Math.hypot(e.clientX - down.clientX, e.clientY - down.clientY) < 6) return;
         ghost = document.createElement("div");
         ghost.className = "drag-ghost";
-        ghost.textContent = row.querySelector(".name")!.textContent;
+        ghost.textContent = paths.length > 1 ? t("{n} items", { n: paths.length }) : row.querySelector(".name")!.textContent;
         document.body.append(ghost);
         document.body.classList.add("dragging");
       }
       ghost.style.transform = `translate(${e.clientX + 12}px, ${e.clientY + 8}px)`;
-      const drop = this.dropDir(document.elementFromPoint(e.clientX, e.clientY), path);
+      const drop = this.dropDir(document.elementFromPoint(e.clientX, e.clientY), paths);
       highlight(drop?.row ?? null);
       this.el.classList.toggle("drop-root", !!drop && !drop.row);
     };
@@ -521,12 +620,72 @@ export class FileTree {
       window.addEventListener("click", swallow, { capture: true, once: true });
       setTimeout(() => window.removeEventListener("click", swallow, { capture: true }), 0);
       const target = document.elementFromPoint(e.clientX, e.clientY);
-      const drop = this.dropDir(target, path);
-      if (drop) this.move(path, drop.dir);
-      else if (!this.el.contains(target)) this.onDragOut(path, target);
+      const drop = this.dropDir(target, paths);
+      if (drop) {
+        // Skip a folder dropped into itself; move the rest one by one.
+        for (const p of paths) {
+          if (key(drop.dir) === key(p) || key(drop.dir).startsWith(key(p) + "\\") || key(drop.dir).startsWith(key(p) + "/")) continue;
+          this.move(p, drop.dir);
+        }
+      } else if (!this.el.contains(target)) this.onDragOut(paths, target);
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
     window.addEventListener("pointercancel", up);
+  }
+
+  /**
+   * Pressing on empty space and dragging draws a box; the rows it touches are selected
+   * (with Ctrl held, added to the selection). A click on empty space clears the selection.
+   */
+  private selectBox(down: PointerEvent) {
+    if (down.target !== this.el && !(down.target as HTMLElement).closest("#tree")) return;
+    const box = this.el.getBoundingClientRect();
+    const y0 = down.clientY - box.top + this.el.scrollTop;
+    const x0 = down.clientX - box.left;
+    const keep = down.ctrlKey || down.metaKey ? new Set(this.sel) : new Set<string>();
+    let lasso: HTMLElement | null = null;
+    const move = (e: PointerEvent) => {
+      const y1 = e.clientY - box.top + this.el.scrollTop;
+      const x1 = e.clientX - box.left;
+      if (!lasso) {
+        if (Math.hypot(x1 - x0, y1 - y0) < 4) return;
+        lasso = document.createElement("div");
+        lasso.className = "tree-lasso";
+        this.el.append(lasso);
+      }
+      const top = Math.min(y0, y1);
+      const bottom = Math.max(y0, y1);
+      Object.assign(lasso.style, {
+        left: `${Math.min(x0, x1)}px`,
+        top: `${top}px`,
+        width: `${Math.abs(x1 - x0)}px`,
+        height: `${bottom - top}px`,
+      });
+      // Scroll along when the box reaches the edge.
+      if (e.clientY > box.bottom - 16) this.el.scrollTop += 12;
+      else if (e.clientY < box.top + 16) this.el.scrollTop -= 12;
+      this.sel = new Set(keep);
+      for (const r of this.el.querySelectorAll<HTMLElement>(".node[data-path]")) {
+        const rt = r.offsetTop;
+        if (rt + r.offsetHeight > top && rt < bottom) this.sel.add(r.dataset.path!);
+      }
+      this.paintSelection();
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      if (!lasso) {
+        if (!keep.size) this.select(null);
+        return;
+      }
+      lasso.remove();
+      const first = this.selection[0];
+      this.selectedPath = first ?? null;
+      this.anchor = first ?? null;
+      this.paintSelection();
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
   }
 }

@@ -1311,3 +1311,49 @@ body[data-win-resize="nw"] *, body[data-win-resize="se"] * { cursor: nwse-resize
 .st-font-opt.current { color: var(--accent); }
 .st-font-opt.current::after { content: "  ✓"; font-family: var(--mono); }
 .st-font-none { padding: 6px 10px; color: var(--dim); }
+
+/* Plugin windows live on their own layer over all of Tern, below the title bar. */
+#plugin-layer { position: fixed; left: 0; right: 0; top: 34px; bottom: 0; z-index: 6000; pointer-events: none; }
+#plugin-layer .plugin-window { pointer-events: auto; }
+
+/* ── window mode, tiling (Hyprland-like) ── */
+/* Where a dragged window will land: half of the target (that side) or all of it (swap). */
+.wm-drop {
+  position: absolute;
+  z-index: 4999;
+  border: 2px solid var(--accent);
+  border-radius: 6px;
+  background: var(--accent-soft);
+  box-shadow: var(--glow);
+  pointer-events: none;
+  transition: left 0.08s, top 0.08s, width 0.08s, height 0.08s;
+}
+.wm-drop[hidden] { display: none; }
+.wm-ghost {
+  position: fixed; left: 0; top: 0;
+  z-index: 90;
+  padding: 3px 10px;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  box-shadow: var(--shadow), var(--glow);
+  color: var(--fg);
+  font-size: 12px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+/* Tiles have no outer shadow: they sit side by side like Hyprland windows. */
+#panes.wm-tiling .win-frame { box-shadow: none; }
+#panes.wm-tiling .win-frame.active { box-shadow: var(--glow); }
+
+/* ── tree: several items selected, and the selection box ── */
+#tree { position: relative; }
+.node.selected { background: var(--accent-soft); }
+.node.focus-row { box-shadow: inset 2px 0 0 var(--accent); }
+.tree-lasso {
+  position: absolute;
+  z-index: 3;
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  pointer-events: none;
+}

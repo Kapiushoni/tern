@@ -122,6 +122,8 @@ export interface CodeEditor {
   /** Replaces the text (after a change on disk), keeping the cursor and scroll where possible. */
   replace(text: string): void;
   setReadOnly(on: boolean): void;
+  /** Types text at the cursor (replacing the selection), as if typed. */
+  insert(text: string): void;
   /** Selects `len` characters at line/column (1-based line, 0-based column) and centres them. */
   goto(line: number, col: number, len: number): void;
   destroy(): void;
@@ -180,6 +182,10 @@ export async function createEditor(
     },
     setReadOnly(on: boolean) {
       view.dispatch({ effects: readOnly.reconfigure(EditorState.readOnly.of(on)) });
+    },
+    insert(text: string) {
+      view.dispatch(view.state.replaceSelection(text), { scrollIntoView: true, userEvent: "input.type" });
+      view.focus();
     },
     goto(line: number, col: number, len: number) {
       const doc = view.state.doc;

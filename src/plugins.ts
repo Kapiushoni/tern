@@ -122,8 +122,22 @@ const SHIM = `(() => {
       if (f) try { f(...(m.args || [])); } catch (err) { call("log", String(err && err.stack || err)); }
     } else if (m.event) {
       for (const f of listeners[m.event] || []) try { f(m.data); } catch (err) { call("log", String(err && err.stack || err)); }
+    } else if (typeof m.insertText === "string") {
+      // Voice input: type into the focused field of this window.
+      const el = document.activeElement;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) {
+        el.setRangeText(m.insertText, el.selectionStart ?? el.value.length, el.selectionEnd ?? el.value.length, "end");
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+      } else if (el && el.isContentEditable) {
+        document.execCommand("insertText", false, m.insertText);
+      }
     }
   });
+  // Tern's shortcuts (voice input, Esc to cancel it) still work while this window has the focus.
+  addEventListener("keydown", (e) => {
+    if (!(e.altKey || e.ctrlKey || e.metaKey || e.key === "Escape")) return;
+    parent.postMessage({ tern: 1, hotkey: { code: e.code, key: e.key, altKey: e.altKey, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, metaKey: e.metaKey } }, "*");
+  }, true);
   addEventListener("error", (e) => call("log", String(e.message)));
   addEventListener("unhandledrejection", (e) => call("log", String(e.reason && e.reason.message || e.reason)));
   window.tern = {
@@ -174,16 +188,21 @@ export class PluginHost {
   getProject: () => string | null = () => null;
   /** Type text into the active terminal tab. */
   sendToTerminal: (text: string) => void = () => {};
+  /** A key pressed inside a focused plugin window (only Tern's own shortcuts act on it). */
+  onHotkey: (e: KeyboardEvent) => void = () => {};
 
   private running = new Map<string, Running>();
   private toolbar: HTMLElement;
   private windowsHost: HTMLElement;
 
-  constructor(toolbarAnchor: HTMLElement, windowsHost: HTMLElement) {
+  constructor(toolbarAnchor: HTMLElement) {
     this.toolbar = document.createElement("div");
     this.toolbar.id = "plugin-buttons";
     toolbarAnchor.before(this.toolbar);
-    this.windowsHost = windowsHost;
+    // Plugin windows float over all of Tern below the title bar (the open file, terminals, tree).
+    this.windowsHost = document.createElement("div");
+    this.windowsHost.id = "plugin-layer";
+    document.body.append(this.windowsHost);
     window.addEventListener("message", (e) => this.onMessage(e));
   }
 
@@ -352,11 +371,26 @@ export class PluginHost {
     return null;
   }
 
+  /** Voice input into a plugin window: its focused field gets the text. */
+  insertInto(frame: HTMLIFrameElement, text: string) {
+    frame.contentWindow?.postMessage({ tern: 1, insertText: text }, "*");
+  }
+
   private async onMessage(e: MessageEvent) {
     const m = e.data;
-    if (!m || m.tern !== 1 || typeof m.method !== "string") return;
+    if (!m || m.tern !== 1) return;
     const from = this.findSource(e.source);
     if (!from) return;
+    if (m.hotkey && typeof m.hotkey === "object") {
+      // Only from the window the user is actually in (a plugin can't fire these in the background).
+      const frame = document.activeElement;
+      if (frame instanceof HTMLIFrameElement && frame.contentWindow === e.source && document.hasFocus()) {
+        const k = m.hotkey;
+        this.onHotkey(new KeyboardEvent("keydown", { code: String(k.code), key: String(k.key), altKey: !!k.altKey, ctrlKey: !!k.ctrlKey, shiftKey: !!k.shiftKey, metaKey: !!k.metaKey }));
+      }
+      return;
+    }
+    if (typeof m.method !== "string") return;
     const p = this.plugins.find((x) => x.id === from.id);
     if (!p?.manifest) return;
     try {

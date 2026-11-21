@@ -175,6 +175,15 @@ export class SettingsWindow {
     size.addEventListener("change", () => set((x) => (x.font.size = Number(size.value) || DEFAULTS.font.size)));
     row("Font", font, size, span("st-unit", "px"));
 
+    row(
+      "Window mode",
+      segmented(
+        [["tiling", "tiling (like Hyprland)"], ["floating", "floating"]],
+        s.windows.layout,
+        (v) => set((x) => (x.windows.layout = v as Settings["windows"]["layout"])),
+      ),
+    );
+
     const fx = div("st-checks");
     const effects: [keyof Settings["effects"], string][] = [
       ["glow", "neon glow"],

@@ -49,7 +49,7 @@ const projectTools = new ProjectTools(tabs, document.getElementById("btn-run")!,
 const settingsWindow = new SettingsWindow(store);
 const startScreen = new StartScreen(panes);
 const installScreen = new InstallScreen(termHost);
-const plugins = new PluginHost(document.getElementById("btn-tile")!, termHost);
+const plugins = new PluginHost(document.getElementById("btn-tile")!);
 const pluginsWindow = new PluginsWindow(plugins);
 
 const projectRoot = () => tree.root || null;
@@ -77,12 +77,13 @@ editor.previewRoot = (path) => {
 };
 document.getElementById("btn-search")!.addEventListener("click", () => search.open());
 document.getElementById("btn-settings")!.addEventListener("click", () => settingsWindow.open());
-tree.onDragOut = (path, target) => {
-  if (target?.closest("#terminal-host")) tabs.attach([path]);
-  else if (target?.closest("#editor")) editor.open(path);
+tree.onDragOut = (paths, target) => {
+  // The open file first: in window mode it sits inside the terminal area.
+  if (target?.closest("#editor")) editor.open(paths[0]);
+  else if (target?.closest("#terminal-host")) tabs.attach(paths);
 };
 tree.onOpen = (path) => editor.open(path);
-tree.onAskClaude = (path) => tabs.askClaude(path);
+tree.onAskClaude = (paths) => tabs.askClaude(paths);
 attachments.onOpenFile = (path) => editor.open(path);
 let home = "";
 
@@ -227,6 +228,7 @@ store.onApply = (s, before) => {
   voice.settings = { model: s.voice.model, mic: s.voice.microphone ?? undefined, lang: s.voice.language ?? undefined };
   voice.key = s.keys.voice;
   projectTools.ide = s.ide ?? undefined;
+  tabs.setLayout(s.windows.layout);
   keys = s.keys;
   invoke("settings_runtime", {
     runtime: {
@@ -265,6 +267,8 @@ plugins.sendToTerminal = (text) => {
   s.paste(text);
   s.focus();
 };
+// Voice input from inside a plugin window (Alt+Z, Esc).
+plugins.onHotkey = (e) => voice.handleKey(e);
 plugins.onChange = () => {
   applyLook(store.value);
   pluginsWindow.refresh();
@@ -272,6 +276,37 @@ plugins.onChange = () => {
 tabs.onEvent = (name, data) => plugins.emit(name, data);
 editor.onSaved = (path) => plugins.emit("file:save", { path, project: tree.root || null });
 tree.extraMenuItems = (path) => plugins.menuItems(path);
+
+// ── voice input goes wherever you're typing ──────────────
+function typeInto(el: HTMLInputElement | HTMLTextAreaElement, text: string) {
+  el.focus();
+  el.setRangeText(text, el.selectionStart ?? el.value.length, el.selectionEnd ?? el.value.length, "end");
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+}
+voice.resolveTarget = () => {
+  const el = document.activeElement as HTMLElement | null;
+  // A plugin's window (its own field gets the text).
+  if (el instanceof HTMLIFrameElement && el.closest(".plugin-window")) return { insert: (t) => plugins.insertInto(el, t) };
+  // The open file.
+  if (el?.closest(".cm-editor")) return { insert: (t) => editor.insertText(t) };
+  // Any text field: search, quick open, settings, a run command…
+  const textField =
+    (el instanceof HTMLInputElement && /^(text|search|url|email|number|)$/.test(el.type)) || el instanceof HTMLTextAreaElement;
+  if (textField && !el.classList.contains("xterm-helper-textarea")) {
+    const field = el as HTMLInputElement | HTMLTextAreaElement;
+    return { insert: (t) => typeInto(field, t) };
+  }
+  // A terminal: the one with the focus (window mode), else the active tab.
+  const s = tabs.sessionFor(el) ?? tabs.activeSession;
+  return s
+    ? {
+        insert: (t) => {
+          s.paste(t);
+          s.focus();
+        },
+      }
+    : null;
+};
 
 // ── title bar: Tern draws its own (tabs share the row with the window buttons) ──
 const appWindow = getCurrentWindow();

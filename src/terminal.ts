@@ -117,10 +117,18 @@ export class TermSession {
       theme,
     });
     this.term.loadAddon(this.fit);
+    this.steadyMouse();
 
     this.term.onData((data) => {
       this.send(data);
       if (this.id !== null) this.onInput(data);
+    });
+    // Mouse reports in the old X10 encoding are raw bytes (one per char), not text: send them as
+    // bytes, or the mouse would not work in programs that ask for that encoding.
+    this.term.onBinary((data) => {
+      if (this.id === null) return;
+      const bytes = Array.from(data, (c) => c.charCodeAt(0) & 0xff);
+      invoke("pty_write_bytes", { id: this.id, data: bytes }).catch(() => {});
     });
     this.term.attachCustomKeyEventHandler((e) => this.onKey(e));
 
@@ -216,6 +224,41 @@ export class TermSession {
   }
 
   /** Writes straight to the process (queued until it has started). */
+  /**
+   * Windows' ConPTY turns mouse reporting off and straight back on whenever a program fiddles
+   * with its console mode, many times a second. Each "off" made xterm drop mouse tracking, so a
+   * click landing in between was lost. An "off" now takes effect only if no "on" follows soon.
+   */
+  private steadyMouse() {
+    const MOUSE = new Set([9, 1000, 1001, 1002, 1003, 1005, 1006, 1015, 1016]);
+    let pending: number[] = [];
+    let timer = 0;
+    let replaying = false;
+    const modes = (params: (number | number[])[]) => params.map((p) => (Array.isArray(p) ? p[0] : p));
+    this.term.parser.registerCsiHandler({ prefix: "?", final: "l" }, (params) => {
+      const list = modes(params);
+      if (replaying || !list.length || !list.every((m) => MOUSE.has(m))) return false;
+      pending.push(...list);
+      clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        const off = pending;
+        pending = [];
+        replaying = true;
+        this.term.write(`\x1b[?${off.join(";")}l`, () => (replaying = false));
+      }, 150);
+      return true; // held back for now
+    });
+    this.term.parser.registerCsiHandler({ prefix: "?", final: "h" }, (params) => {
+      const list = modes(params);
+      if (pending.length && list.some((m) => MOUSE.has(m))) {
+        // Switched back on: the "off" never happened.
+        pending = pending.filter((m) => !list.includes(m));
+        if (!pending.length) clearTimeout(timer);
+      }
+      return false; // xterm applies it as usual
+    });
+  }
+
   send(data: string) {
     if (this.id === null) this.pending.push(data);
     else invoke("pty_write", { id: this.id, data });

@@ -173,6 +173,15 @@ pub fn pty_write(state: State<'_, PtyState>, id: u32, data: String) -> Result<()
     s.writer.flush().map_err(|e| e.to_string())
 }
 
+/// Raw bytes for the terminal (mouse reports in the X10 encoding are not valid UTF-8).
+#[tauri::command]
+pub fn pty_write_bytes(state: State<'_, PtyState>, id: u32, data: Vec<u8>) -> Result<(), String> {
+    let mut sessions = state.sessions.lock().unwrap();
+    let s = sessions.get_mut(&id).ok_or("no such terminal")?;
+    s.writer.write_all(&data).map_err(|e| e.to_string())?;
+    s.writer.flush().map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn pty_resize(state: State<'_, PtyState>, id: u32, cols: u16, rows: u16) -> Result<(), String> {
     let sessions = state.sessions.lock().unwrap();

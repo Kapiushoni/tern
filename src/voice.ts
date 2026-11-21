@@ -1,6 +1,9 @@
 import { invoke, Channel } from "@tauri-apps/api/core";
 import type { Tabs } from "./tabs";
-import type { TermSession } from "./terminal";
+/** Where the recognised text goes: whatever had the focus when recording started. */
+export interface VoiceTarget {
+  insert(text: string): void;
+}
 import { toast } from "./toast";
 import { t, tt } from "./i18n";
 import { matches, showCombo } from "./settings";
@@ -63,7 +66,9 @@ export class Voice {
   private button: HTMLButtonElement;
   private pill: HTMLElement;
   private pop: HTMLElement;
-  private target: TermSession | null = null;
+  private target: VoiceTarget | null = null;
+  /** The place to type into right now (the focused field, editor, plugin window or terminal). */
+  resolveTarget: () => VoiceTarget | null = () => null;
   private downloading = false;
   private startedAt = 0;
   private clock = 0;
@@ -99,25 +104,22 @@ export class Voice {
       if (!this.pop.hidden && !this.pop.contains(e.target as Node) && e.target !== this.button) this.closePop();
     });
 
-    window.addEventListener(
-      "keydown",
-      (e) => {
-        if (matches(e, this.key)) {
-          e.preventDefault();
-          e.stopPropagation();
-          if (!e.repeat) this.toggle();
-        } else if (e.key === "Escape" && !this.pop.hidden) {
-          e.preventDefault();
-          e.stopPropagation();
-          this.closePop();
-        } else if (e.key === "Escape" && (this.phase === "recording" || this.phase === "starting")) {
-          e.preventDefault();
-          e.stopPropagation();
-          this.cancel();
-        }
-      },
-      { capture: true },
-    );
+    window.addEventListener("keydown", (e) => this.handleKey(e), { capture: true });
+  }
+
+  /** The voice key starts / stops; Esc discards a recording. True if the key was used. */
+  handleKey(e: KeyboardEvent): boolean {
+    let used = true;
+    if (matches(e, this.key)) {
+      if (!e.repeat) this.toggle();
+    } else if (e.key === "Escape" && !this.pop.hidden) this.closePop();
+    else if (e.key === "Escape" && (this.phase === "recording" || this.phase === "starting")) this.cancel();
+    else used = false;
+    if (used) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    return used;
   }
 
   private get lang() {
@@ -127,8 +129,8 @@ export class Voice {
   async toggle() {
     if (this.phase === "recording") return this.stop();
     if (this.phase !== "idle") return;
-    const session = this.tabs.activeSession;
-    if (!session) return toast(t("Open a terminal tab first"));
+    const target = this.resolveTarget();
+    if (!target) return toast(t("Open a terminal tab first"));
     const models = await invoke<ModelInfo[]>("voice_models").catch(() => []);
     if (!models.find((m) => m.id === this.settings.model)?.installed) {
       const other = models.find((m) => m.installed);
@@ -136,7 +138,7 @@ export class Voice {
       this.settings.model = other.id;
       this.onChange();
     }
-    this.target = session;
+    this.target = target;
     this.setPhase("starting");
     const levels = new Channel<number>();
     levels.onmessage = (v) => this.host.style.setProperty("--voice-level", Math.min(1, v * 4).toFixed(2));
@@ -161,10 +163,7 @@ export class Voice {
     try {
       const text = await invoke<string>("voice_stop", { model: this.settings.model, lang: this.lang === "auto" ? null : this.lang });
       if (!text) toast(t("Didn't catch any speech"));
-      else if (target) {
-        target.paste(text + " ");
-        target.focus();
-      }
+      else target?.insert(text + " ");
     } catch (err) {
       toast(t("Voice input failed: {error}", { error: String(err).replace(/^\w+: /, "") }), 4000);
     }
