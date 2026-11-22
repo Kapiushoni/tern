@@ -22,6 +22,7 @@ import { startUpdateChecks } from "./updates";
 import { repaintIcons } from "./fileicons";
 import { PluginHost } from "./plugins";
 import { PluginsWindow } from "./pluginsui";
+import type { PaletteCommand } from "./quickopen";
 
 const app = document.getElementById("app")!;
 const root = document.documentElement;
@@ -56,6 +57,7 @@ const projectRoot = () => tree.root || null;
 quickOpen.getRoot = projectRoot;
 quickOpen.onOpen = (path) => editor.open(path);
 quickOpen.onAskClaude = (path) => tabs.askClaude(path);
+quickOpen.getCommands = () => [...ternCommands(), ...plugins.paletteCommands()];
 search.getRoot = projectRoot;
 search.onOpen = (path, at) => editor.open(path, { at, focus: false });
 search.onToggle = (open) => {
@@ -231,6 +233,7 @@ store.onApply = (s, before) => {
   voice.key = s.keys.voice;
   projectTools.ide = s.ide ?? undefined;
   tabs.setLayout(s.windows.layout);
+  plugins.setStatusBar(s.statusBar);
   keys = s.keys;
   invoke("settings_runtime", {
     runtime: {
@@ -271,6 +274,7 @@ plugins.sendToTerminal = (text) => {
 };
 // Voice input from inside a plugin window (Alt+Z, Esc).
 plugins.onHotkey = (e) => voice.handleKey(e);
+plugins.statusBar = document.getElementById("statusbar");
 plugins.onChange = () => {
   applyLook(store.value);
   pluginsWindow.refresh();
@@ -546,7 +550,8 @@ const actions: Record<Exclude<Action, "voice">, () => void> = {
   newClaude: () => newTab("claude"),
   newShell: () => newTab("shell"),
   attach: () => attachments.pick(),
-  goToFile: () => (quickOpen.isOpen ? quickOpen.close() : quickOpen.open()),
+  goToFile: () => (quickOpen.isOpen && !quickOpen.inCommands ? quickOpen.close() : quickOpen.open()),
+  commands: () => (quickOpen.inCommands ? quickOpen.close() : quickOpen.open(">")),
   searchFiles: () => search.open(),
   settings: () => (settingsWindow.isOpen ? settingsWindow.close() : settingsWindow.open()),
   toggleTiling: () => toggleTiling(),
@@ -558,6 +563,30 @@ const actions: Record<Exclude<Action, "voice">, () => void> = {
   nextTab: () => tabs.cycle(1),
   prevTab: () => tabs.cycle(-1),
 };
+
+/** Tern's own commands in the palette (with their shortcuts from settings). */
+function ternCommands(): PaletteCommand[] {
+  const k = (a: Action) => keys[a];
+  return [
+    { name: t("New Claude tab"), key: k("newClaude"), run: actions.newClaude },
+    { name: t("New terminal tab"), key: k("newShell"), run: actions.newShell },
+    { name: t("Close tab"), key: k("closeTab"), run: actions.closeTab },
+    { name: t("Next tab"), key: k("nextTab"), run: actions.nextTab },
+    { name: t("Previous tab"), key: k("prevTab"), run: actions.prevTab },
+    { name: t("Show or hide the file tree"), key: k("toggleTree"), run: actions.toggleTree },
+    { name: t("Go to file"), key: k("goToFile"), run: () => quickOpen.open() },
+    { name: t("Search in files"), key: k("searchFiles"), run: actions.searchFiles },
+    { name: t("Attach files"), key: k("attach"), run: actions.attach },
+    { name: t("Voice input"), key: k("voice"), run: () => voice.toggle() },
+    { name: t("Window mode"), key: k("toggleTiling"), run: actions.toggleTiling },
+    { name: t("Open folder…"), run: () => btnOpen.click() },
+    { name: t("Switch dark / light theme"), run: () => btnTheme.click() },
+    { name: t("Settings"), key: k("settings"), run: () => settingsWindow.open() },
+    { name: t("Open settings.json"), run: () => editor.open(store.path) },
+    { name: t("Plugins"), run: () => pluginsWindow.open() },
+    { name: t("Reload plugins"), run: () => plugins.load() },
+  ];
+}
 
 window.addEventListener(
   "keydown",

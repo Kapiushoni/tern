@@ -78,6 +78,13 @@ function makeTern({ dir, data }) {
     addButton: (o) => call("addButton", { icon: o.icon, title: o.title, onClick: cb(o.onClick) }),
     addMenuItem: (o) => call("addMenuItem", { label: o.label, onClick: cb(o.onClick) }),
     addCommand: (o) => call("addCommand", { name: o.name, key: o.key, run: cb(o.run) }),
+    addStatus: async (o) => {
+      const id = await call("addStatus", { text: o.text, title: o.title, align: o.align, onClick: cb(o.onClick) });
+      return {
+        set: (u) => call("setStatus", id, { text: u.text, title: u.title }),
+        remove: () => call("removeStatus", id),
+      };
+    },
     on: (event, fn) => {
       (listeners[event] ??= []).push(fn);
       return call("on", event);

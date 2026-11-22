@@ -71,6 +71,8 @@ interface Running {
   style: HTMLStyleElement | null;
   /** Its background code is running in the plugin host. */
   backend: boolean;
+  /** Its items in the status bar, by the id handed to the plugin. */
+  status: Map<string, HTMLElement>;
 }
 
 /** What a permission means, for the install dialog. */
@@ -157,6 +159,13 @@ const SHIM = `(() => {
     addButton: (o) => call("addButton", { icon: o.icon, title: o.title, onClick: cb(o.onClick) }),
     addMenuItem: (o) => call("addMenuItem", { label: o.label, onClick: cb(o.onClick) }),
     addCommand: (o) => call("addCommand", { name: o.name, key: o.key, run: cb(o.run) }),
+    addStatus: async (o) => {
+      const id = await call("addStatus", { text: o.text, title: o.title, align: o.align, onClick: cb(o.onClick) });
+      return {
+        set: (u) => call("setStatus", id, { text: u.text, title: u.title }),
+        remove: () => call("removeStatus", id),
+      };
+    },
     on: (event, fn) => { (listeners[event] = listeners[event] || []).push(fn); return call("on", event); },
     notify: (text) => call("notify", String(text)),
     openWindow: (file, opts) => call("openWindow", file, opts || {}),
@@ -209,6 +218,10 @@ export class PluginHost {
   sendToTerminal: (text: string) => void = () => {};
   /** A key pressed inside a focused plugin window (only Tern's own shortcuts act on it). */
   onHotkey: (e: KeyboardEvent) => void = () => {};
+  /** The status bar at the bottom: shown while it has items and the user wants it. */
+  statusBar: HTMLElement | null = null;
+  private statusOn = true;
+  private statusSeq = 0;
 
   private running = new Map<string, Running>();
   private toolbar: HTMLElement;
@@ -281,7 +294,7 @@ export class PluginHost {
 
   private async start(p: Plugin) {
     const m = p.manifest!;
-    const r: Running = { frame: null, windows: new Map(), buttons: [], menu: [], commands: [], events: new Set(), style: null, backend: false };
+    const r: Running = { frame: null, windows: new Map(), buttons: [], menu: [], commands: [], events: new Set(), style: null, backend: false, status: new Map() };
     this.running.set(p.id, r);
     p.running = true;
     if (m.style) {
@@ -323,10 +336,26 @@ export class PluginHost {
     if (r.backend) invoke("plugin_backend_stop", { id }).catch(() => {});
     for (const w of r.windows.values()) w.el.remove();
     for (const b of r.buttons) b.remove();
+    for (const s of r.status.values()) s.remove();
     r.style?.remove();
     this.running.delete(id);
     const p = this.plugins.find((x) => x.id === id);
     if (p) p.running = false;
+    this.layoutStatus();
+  }
+
+  /** The status bar setting (settings.json "statusBar"). */
+  setStatusBar(on: boolean) {
+    this.statusOn = on;
+    this.layoutStatus();
+  }
+
+  private layoutStatus() {
+    const bar = this.statusBar;
+    if (!bar) return;
+    const show = this.statusOn && !!bar.querySelector(".sb-item");
+    bar.hidden = !show;
+    document.getElementById("app")?.classList.toggle("has-status", show);
   }
 
   // ── what Tern asks of running plugins ─────────────────
@@ -355,6 +384,18 @@ export class PluginHost {
     const out: { label: string; run: () => void }[] = [];
     for (const [id, r] of this.running) {
       for (const m of r.menu) out.push({ label: m.label, run: () => this.callback(id, m.cb, [path]) });
+    }
+    return out;
+  }
+
+  /** Plugins' named commands, for the command palette. */
+  paletteCommands(): { name: string; key?: string; source: string; run: () => void }[] {
+    const out: { name: string; key?: string; source: string; run: () => void }[] = [];
+    for (const [id, r] of this.running) {
+      const source = this.plugins.find((x) => x.id === id)?.manifest?.name ?? id;
+      for (const c of r.commands) {
+        if (c.name) out.push({ name: c.name, key: c.key, source, run: () => this.callback(id, c.cb, []) });
+      }
     }
     return out;
   }
@@ -528,6 +569,33 @@ export class PluginHost {
         if (o.run) r.commands.push({ name: String(o.name ?? ""), key: o.key ? String(o.key) : undefined, cb: o.run });
         return;
       }
+      case "addStatus": {
+        if (!this.statusBar) throw new Error("no status bar");
+        const o = (args[0] ?? {}) as { text?: unknown; title?: unknown; align?: unknown; onClick?: string };
+        const el = document.createElement(o.onClick ? "button" : "span");
+        el.className = "sb-item";
+        el.dataset.plugin = p.id;
+        const id = `${p.id}:${++this.statusSeq}`;
+        setStatusText(el, o, m.name);
+        if (o.onClick) el.addEventListener("click", () => this.callback(p.id, o.onClick!, []));
+        const side = this.statusBar.querySelector(o.align === "left" ? ".sb-left" : ".sb-right")!;
+        side.append(el);
+        r.status.set(id, el);
+        this.layoutStatus();
+        return id;
+      }
+      case "setStatus": {
+        const el = r.status.get(str(args[0], "id"));
+        if (el) setStatusText(el, (args[1] ?? {}) as { text?: unknown; title?: unknown }, m.name);
+        return;
+      }
+      case "removeStatus": {
+        const id = str(args[0], "id");
+        r.status.get(id)?.remove();
+        r.status.delete(id);
+        this.layoutStatus();
+        return;
+      }
       case "on":
         r.events.add(str(args[0], "event"));
         return;
@@ -660,3 +728,10 @@ export class PluginHost {
 }
 
 const m = (p: Plugin) => p.manifest!;
+
+/** A status item's text (short, one line) and tooltip. */
+function setStatusText(el: HTMLElement, o: { text?: unknown; title?: unknown }, plugin: string) {
+  if (o.text !== undefined) el.textContent = String(o.text).replace(/\s+/g, " ").slice(0, 60);
+  if (o.title !== undefined) el.title = (o.title ? `${String(o.title)}\n` : "") + plugin;
+  else if (!el.title) el.title = plugin;
+}

@@ -91,11 +91,39 @@ button { font: inherit; color: inherit; }
   height: 100%;
   display: grid;
   grid-template-columns: var(--sidebar-w) 1px 1fr;
-  grid-template-rows: 34px 1fr;
+  grid-template-rows: 34px 1fr auto;
   grid-template-areas:
     "tabs tabs tabs"
-    "side split center";
+    "side split center"
+    "status status status";
 }
+
+/* Plugins' status bar: only there while some plugin shows something in it. */
+#statusbar {
+  grid-area: status;
+  display: flex; justify-content: space-between; align-items: stretch;
+  height: 22px;
+  padding: 0 6px;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+  font-size: 11px;
+  color: var(--dim);
+  overflow: hidden;
+}
+#statusbar[hidden] { display: none; }
+#statusbar .sb-left, #statusbar .sb-right { display: flex; align-items: stretch; min-width: 0; }
+#statusbar .sb-item {
+  display: flex; align-items: center;
+  padding: 0 8px;
+  border: 0; background: none; color: inherit; font: inherit;
+  white-space: nowrap;
+}
+#statusbar button.sb-item { cursor: pointer; }
+#statusbar button.sb-item:hover { background: var(--hover); color: var(--fg); }
+
+/* Command palette (Ctrl+Shift+P, or ">" in Ctrl+P). */
+#quick-open .qo-key { margin-left: auto; flex: none; color: var(--faint); font-size: 11px; }
+#quick-open.commands .qo-hint { display: none; }
 #app.no-sidebar { grid-template-columns: 0 0 1fr; }
 
 /* The open file sits above the terminal, both full width. */

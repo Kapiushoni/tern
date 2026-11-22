@@ -1,10 +1,21 @@
 import { invoke } from "@tauri-apps/api/core";
 import { t, translateTree } from "./i18n";
+import { showCombo } from "./settings";
 
 /**
  * Ctrl+P: find a file by name with a fuzzy match ("tvrnidx" finds tavern/index.html).
  * Enter opens it in the editor; Shift+Enter puts its path into Claude's input instead.
+ * Starting with ">" (or Ctrl+Shift+P) it finds commands instead: Tern's own and plugins'.
  */
+
+export interface PaletteCommand {
+  name: string;
+  /** Its shortcut, shown on the right. */
+  key?: string;
+  /** Which plugin it comes from (empty for Tern's own). */
+  source?: string;
+  run: () => void;
+}
 
 interface Match {
   rel: string;
@@ -20,6 +31,8 @@ export class QuickOpen {
   onAskClaude: (path: string) => void = () => {};
   /** The folder to search; null when nothing is open. */
   getRoot: () => string | null = () => null;
+  /** Everything the command palette lists. */
+  getCommands: () => PaletteCommand[] = () => [];
 
   private el: HTMLElement;
   private input: HTMLInputElement;
@@ -27,6 +40,8 @@ export class QuickOpen {
   private files: Promise<string[]> | null = null;
   private filesRoot = "";
   private matches: Match[] = [];
+  /** Commands mode (the query starts with ">"): what each match runs. */
+  private commands: PaletteCommand[] | null = null;
   private index = 0;
   private returnFocus: HTMLElement | null = null;
 
@@ -35,7 +50,7 @@ export class QuickOpen {
     this.el.id = "quick-open";
     this.el.hidden = true;
     this.el.innerHTML =
-      `<input type="text" spellcheck="false" autocomplete="off" data-i18n-ph="Go to file…" />` +
+      `<input type="text" spellcheck="false" autocomplete="off" data-i18n-ph="Go to file… (> for commands)" />` +
       `<div class="qo-list" role="listbox"></div>` +
       `<div class="qo-hint"><kbd>Enter</kbd> <span data-i18n="open"></span> · <kbd>Shift+Enter</kbd> <span data-i18n="ask Claude"></span> · <kbd>Esc</kbd> <span data-i18n="close"></span></div>`;
     translateTree(this.el);
@@ -64,18 +79,27 @@ export class QuickOpen {
     return !this.el.hidden;
   }
 
-  open() {
+  /** Opens with `prefix` typed in: "" for files, ">" for commands. */
+  open(prefix = "") {
     const root = this.getRoot();
-    if (!root) return;
-    if (root !== this.filesRoot || !this.files) {
+    // No folder open: the box still opens (for commands), with nothing to list as files.
+    if (!root) {
+      this.filesRoot = "";
+      this.files = Promise.resolve([]);
+    } else if (root !== this.filesRoot || !this.files) {
       this.filesRoot = root;
       this.files = invoke<string[]>("list_files", { root }).catch(() => []);
     }
     this.returnFocus = document.activeElement as HTMLElement | null;
     this.el.hidden = false;
-    this.input.value = "";
+    this.input.value = prefix;
     this.input.focus();
     this.update();
+  }
+
+  /** In commands mode now. */
+  get inCommands() {
+    return this.isOpen && this.input.value.startsWith(">");
   }
 
   close(restoreFocus = true) {
@@ -85,6 +109,9 @@ export class QuickOpen {
   }
 
   private async update() {
+    if (this.input.value.startsWith(">")) return this.updateCommands();
+    this.commands = null;
+    this.el.classList.remove("commands");
     const q = this.input.value.trim();
     const files = (await this.files) ?? [];
     if (q !== this.input.value.trim()) return; // typed on meanwhile
@@ -103,12 +130,63 @@ export class QuickOpen {
     this.render(files.length);
   }
 
+  private updateCommands() {
+    this.el.classList.add("commands");
+    const q = this.input.value.slice(1).trim();
+    const all = this.getCommands();
+    const found: { m: Match; c: PaletteCommand }[] = [];
+    for (const c of all) {
+      const m = q ? fuzzy(q, c.name) : { rel: c.name, score: 0, at: [] };
+      if (m) found.push({ m, c });
+    }
+    if (q) found.sort((a, b) => b.m.score - a.m.score);
+    this.commands = found.map((f) => f.c);
+    this.matches = found.map((f) => f.m);
+    this.index = 0;
+    this.list.replaceChildren();
+    if (!found.length) {
+      const empty = document.createElement("div");
+      empty.className = "qo-empty";
+      empty.textContent = t("No matching commands");
+      this.list.append(empty);
+      return;
+    }
+    found.forEach(({ m, c }, i) => {
+      const row = document.createElement("div");
+      row.className = "qo-row";
+      row.dataset.i = String(i);
+      row.setAttribute("role", "option");
+      const name = document.createElement("span");
+      name.className = "qo-name";
+      highlight(name, c.name, 0, c.name.length, m.at);
+      row.append(name);
+      if (c.source) {
+        const src = document.createElement("span");
+        src.className = "qo-dir";
+        src.textContent = c.source;
+        row.append(src);
+      }
+      if (c.key) {
+        const k = document.createElement("kbd");
+        k.className = "qo-key";
+        k.textContent = showCombo(c.key);
+        row.append(k);
+      }
+      this.list.append(row);
+    });
+    this.select(0);
+  }
+
   private render(total: number) {
     this.list.replaceChildren();
     if (!this.matches.length) {
       const empty = document.createElement("div");
       empty.className = "qo-empty";
-      empty.textContent = total ? t("No matching files") : t("No files");
+      empty.textContent = !this.filesRoot
+        ? t("Open a folder to find files — or type > for commands")
+        : total
+          ? t("No matching files")
+          : t("No files");
       this.list.append(empty);
       return;
     }
@@ -151,6 +229,13 @@ export class QuickOpen {
   }
 
   private pick(i: number, ask: boolean) {
+    if (this.commands) {
+      const c = this.commands[i];
+      if (!c) return;
+      this.close();
+      c.run();
+      return;
+    }
     const m = this.matches[i];
     if (!m) return;
     const sep = this.filesRoot.includes("\\") ? "\\" : "/";

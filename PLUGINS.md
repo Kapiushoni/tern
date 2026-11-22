@@ -77,7 +77,9 @@ Every call returns a Promise.
 // UI
 tern.addButton({ icon, title, onClick })   // icon: emoji/short text, or an SVG path "M3 3h18…" (24×24)
 tern.addMenuItem({ label, onClick(path) })  // in the file tree's right-click menu
-tern.addCommand({ name, key: "Ctrl+Shift+Y", run })  // a keyboard shortcut
+tern.addCommand({ name, key: "Ctrl+Shift+Y", run })  // in the command palette (Ctrl+Shift+P); key optional
+const s = await tern.addStatus({ text: "✓ ok", title, align: "right", onClick })  // the status bar
+s.set({ text: "✗ 2 errors" }); s.remove()
 tern.notify("text")                         // a short message at the bottom of the window
 tern.openWindow("panel.html", { title, width, height })  // a window from your folder
 tern.closeWindow("panel.html")

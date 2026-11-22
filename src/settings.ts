@@ -10,7 +10,7 @@ import { WALLPAPER_IDS } from "./wallpapers";
 export type Lang = "en" | "ru" | "uk";
 export type Action =
   | "voice" | "newClaude" | "newShell" | "closeTab" | "nextTab" | "prevTab" | "toggleTree"
-  | "goToFile" | "searchFiles" | "attach" | "settings" | "toggleTiling";
+  | "goToFile" | "searchFiles" | "attach" | "settings" | "toggleTiling" | "commands";
 
 export interface Settings {
   language: Lang;
@@ -18,6 +18,8 @@ export interface Settings {
   accent: string;
   /** Start screen picture: one of WALLPAPERS (wallpapers.ts) or "none". */
   wallpaper: string;
+  /** The bar at the bottom where plugins show their status (it appears only when they do). */
+  statusBar: boolean;
   font: { family: string; size: number };
   effects: { glow: boolean; crt: boolean; asciiLogo: boolean; typewriter: boolean };
   sound: { enabled: boolean; volume: number };
@@ -41,6 +43,7 @@ export const DEFAULTS: Settings = {
   theme: "dark",
   accent: "#ff2e88",
   wallpaper: "tern",
+  statusBar: true,
   font: { family: "Commit Mono", size: 14 },
   effects: { glow: true, crt: true, asciiLogo: true, typewriter: true },
   sound: { enabled: true, volume: 20 },
@@ -64,6 +67,7 @@ export const DEFAULTS: Settings = {
     attach: "Ctrl+Shift+A",
     settings: "Ctrl+,",
     toggleTiling: "Ctrl+Shift+G",
+    commands: "Ctrl+Shift+P",
   },
   colors: { dark: {}, light: {} },
 };
