@@ -39,7 +39,6 @@ export class ProjectTools {
   constructor(
     private tabs: Tabs,
     private runBtn: HTMLElement,
-    private ideBtn: HTMLElement,
   ) {
     runBtn.addEventListener("click", () => this.run());
     runBtn.addEventListener("contextmenu", (e) => {
@@ -47,12 +46,6 @@ export class ProjectTools {
       this.editCommand();
     });
     runBtn.addEventListener("mouseenter", () => this.describeRun());
-    ideBtn.addEventListener("click", () => this.openIde());
-    ideBtn.addEventListener("contextmenu", (e) => {
-      e.preventDefault();
-      this.chooseIde(e.clientX, e.clientY);
-    });
-    ideBtn.addEventListener("mouseenter", () => this.describeIde());
 
     this.pop = document.createElement("div");
     this.pop.id = "run-pop";
@@ -201,41 +194,6 @@ export class ProjectTools {
     if (chosen) return chosen;
     const guess = await guessIde(root);
     return ides.find((i) => i.id === guess) ?? ides.find((i) => i.id === "vscode") ?? ides[0];
-  }
-
-  private async describeIde() {
-    const root = this.getRoot();
-    const ides = await this.list();
-    if (!ides.length || !root) {
-      this.ideBtn.title = t("Open in IDE");
-      return;
-    }
-    const ide = await this.pick(ides, root);
-    this.ideBtn.title = t("Open the project in {ide}\nRight-click to choose the IDE", { ide: ide.name });
-  }
-
-  private async chooseIde(x: number, y: number) {
-    this.ides = null;
-    const ides = await this.list();
-    if (!ides.length) return toast(t("No IDE found — install IntelliJ IDEA, PyCharm or VS Code"), 4000);
-    const items: MenuItem[] = ides.map((i) => ({
-      label: i.name,
-      hint: i.id === this.ide ? "✓" : undefined,
-      run: () => {
-        this.ide = i.id;
-        this.onChange();
-        this.openIde();
-      },
-    }));
-    items.push(null, {
-      label: t("Pick by project language"),
-      hint: this.ide ? undefined : "✓",
-      run: () => {
-        this.ide = undefined;
-        this.onChange();
-      },
-    });
-    this.showMenu(items, x, y);
   }
 }
 

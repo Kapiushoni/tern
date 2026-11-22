@@ -45,7 +45,7 @@ const editor = new Editor(document.getElementById("editor")!);
 const voice = new Voice(tabs, attachments.tools, termHost);
 const quickOpen = new QuickOpen();
 const search = new Search(document.getElementById("search-view")!);
-const projectTools = new ProjectTools(tabs, document.getElementById("btn-run")!, document.getElementById("btn-ide")!);
+const projectTools = new ProjectTools(tabs, document.getElementById("btn-run")!);
 const settingsWindow = new SettingsWindow(store);
 const startScreen = new StartScreen(panes);
 const installScreen = new InstallScreen(termHost);
@@ -60,7 +60,7 @@ search.getRoot = projectRoot;
 search.onOpen = (path, at) => editor.open(path, { at, focus: false });
 search.onToggle = (open) => {
   document.getElementById("sidebar")!.classList.toggle("searching", open);
-  if (open) app.classList.remove("no-sidebar");
+  if (open) toggleSidebar(true);
   else tabs.activeSession?.focus();
 };
 projectTools.getRoot = projectRoot;
@@ -85,6 +85,8 @@ tree.onDragOut = (paths, target) => {
 tree.onOpen = (path) => editor.open(path);
 tree.onAskClaude = (paths) => tabs.askClaude(paths);
 attachments.onOpenFile = (path) => editor.open(path);
+// Files dragged from Explorer onto the tree are copied into the project.
+attachments.onExternalDrop = (paths, target, drop) => tree.externalDrag(paths, target, drop);
 let home = "";
 
 /** The session (what is open, and where); settings live in settings.json. */
@@ -388,7 +390,7 @@ btnTile.addEventListener("click", () => toggleTiling());
 
 // ── start screen and Claude Code install ─────────────────
 function showStart() {
-  startScreen.show(recent, store.value.effects.asciiLogo, keys);
+  startScreen.show(recent, store.value.effects.asciiLogo, keys, store.value.wallpaper);
 }
 startScreen.onOpen = (dir) => tabs.open("claude", dir);
 startScreen.onPickFolder = async () => {
@@ -421,6 +423,16 @@ const currentDir = () => tabs.activeCwd ?? tree.root ?? home;
 const newTab = (kind: TermKind) => tabs.open(kind, currentDir() || home);
 
 // ── buttons ──────────────────────────────────────────────
+const btnSidebar = document.getElementById("btn-sidebar")!;
+/** Shows or hides the whole file tree (the button left of the tabs, × in the tree, Ctrl+B). */
+function toggleSidebar(show = app.classList.contains("no-sidebar")) {
+  app.classList.toggle("no-sidebar", !show);
+  btnSidebar.setAttribute("aria-pressed", String(show));
+  save();
+}
+btnSidebar.addEventListener("click", () => toggleSidebar());
+document.getElementById("btn-tree-close")!.addEventListener("click", () => toggleSidebar(false));
+
 btnHidden.addEventListener("click", async () => {
   const on = btnHidden.getAttribute("aria-pressed") !== "true";
   btnHidden.setAttribute("aria-pressed", String(on));
@@ -530,10 +542,7 @@ dragSplitter(
 
 // ── hotkeys (from settings; physical key positions, so any keyboard layout works) ─
 const actions: Record<Exclude<Action, "voice">, () => void> = {
-  toggleTree: () => {
-    app.classList.toggle("no-sidebar");
-    save();
-  },
+  toggleTree: () => toggleSidebar(),
   newClaude: () => newTab("claude"),
   newShell: () => newTab("shell"),
   attach: () => attachments.pick(),
@@ -606,7 +615,10 @@ window.addEventListener(
   await plugins.load();
 
   if (saved?.sidebarW) root.style.setProperty("--sidebar-w", `${saved.sidebarW}px`);
-  if (saved?.sidebarHidden) app.classList.add("no-sidebar");
+  if (saved?.sidebarHidden) {
+    app.classList.add("no-sidebar");
+    btnSidebar.setAttribute("aria-pressed", "false");
+  }
   if (saved?.editorH) root.style.setProperty("--editor-h", `${saved.editorH}%`);
 
   const restore = saved?.tabs ?? [];

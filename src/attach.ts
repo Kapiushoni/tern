@@ -53,6 +53,69 @@ export function inputBox(term: Terminal): { top: number; prompt: number; bottom:
   return null;
 }
 
+export interface MenuHit {
+  /** Buffer row of the clicked item; how many items down (+) or up (−) from the ❯ one it is. */
+  row: number;
+  delta: number;
+}
+
+const MARK = /^(\s*)(❯|›)\s+(?=\S)/;
+
+/**
+ * Claude Code's menus (permission prompts, "do you trust this folder", pickers) are keyboard
+ * only: a column of options with ❯ on the current one, numbered or not. This finds the option at
+ * a row, if that row belongs to such a menu on the live screen. The input box's own ❯ (between
+ * two ─── lines) and anything in scrolled-back history are not menus.
+ */
+export function menuItemAt(term: Terminal, row: number): MenuHit | null {
+  const buf = term.buffer.active;
+  const first = buf.baseY;
+  const last = first + term.rows - 1;
+  if (row < first || row > last) return null;
+  const text = (y: number) => readLine(term, y).text;
+  // The ❯ line near the click.
+  let markRow = -1;
+  let textCol = 0;
+  for (let d = 0; d <= 14 && markRow < 0; d++) {
+    for (const y of d ? [row - d, row + d] : [row]) {
+      if (y < first || y > last) continue;
+      const m = MARK.exec(text(y));
+      if (!m) continue;
+      if (BORDER.test(text(y - 1).trimStart()) || BORDER.test(text(y + 1).trimStart())) continue; // the input box
+      markRow = y;
+      textCol = m[0].length;
+      break;
+    }
+  }
+  if (markRow < 0) return null;
+  // Options: lines whose text starts at the same column (only spaces before it).
+  const isItem = (y: number) => {
+    const t = text(y);
+    return t.length > textCol && /\S/.test(t[textCol]) && !/\S/.test(t.slice(0, textCol));
+  };
+  const items = [markRow];
+  for (const step of [-1, 1]) {
+    let gap = 0;
+    for (let y = markRow + step; y >= first && y <= last; y += step) {
+      const t = text(y);
+      if (!t.trim()) {
+        if (++gap > 1) break;
+        continue;
+      }
+      if (/(Enter|Esc) to /.test(t)) break; // the hint line under the menu
+      if (isItem(y)) {
+        items.push(y);
+        gap = 0;
+      } else if (/^\s*$/.test(t.slice(0, textCol + 1)) && t.length > textCol + 1) {
+        continue; // an option's description, indented further
+      } else break;
+    }
+  }
+  if (items.length < 2 || !items.includes(row)) return null;
+  items.sort((x, y) => x - y);
+  return { row, delta: items.indexOf(row) - items.indexOf(markRow) };
+}
+
 /** The "[Image #N]" numbers currently in Claude Code's input box. */
 export function imageTagsInInput(term: Terminal): number[] {
   const box = inputBox(term);
@@ -108,6 +171,11 @@ export class Attachments {
   private info = new Map<string, { at: number; value: Promise<FileInfo | null> }>();
   /** Ctrl+click on a file path in the terminal opens it in the editor. */
   onOpenFile: (path: string) => void = () => {};
+  /**
+   * Files dragged in from outside, over something other than the terminal (the file tree):
+   * return true to take them. `drop` is false while they are only hovering.
+   */
+  onExternalDrop: (paths: string[], target: Element | null, drop: boolean) => boolean = () => false;
 
   constructor(
     termHost: HTMLElement,
@@ -135,7 +203,10 @@ export class Attachments {
     new ResizeObserver(() => this.place()).observe(panes);
 
     panes.addEventListener("mousemove", (e) => this.onMouseMove(e));
-    panes.addEventListener("mouseleave", () => this.setHit(null));
+    panes.addEventListener("mouseleave", () => {
+      this.setHit(null);
+      this.showMenuHover(null);
+    });
     // Capture phase, so a click on a tag opens the picture instead of going to Claude Code.
     panes.addEventListener("mousedown", (e) => this.onMouseDown(e), { capture: true });
 
@@ -154,11 +225,23 @@ export class Attachments {
     // Capture phase: runs before xterm's own paste handler, so files and images can be taken here.
     termHost.addEventListener("paste", (e) => this.onPaste(e), { capture: true });
 
+    let dragged: string[] = [];
     getCurrentWebview().onDragDropEvent((e) => {
       const p = e.payload;
-      if (p.type === "enter" || p.type === "over") termHost.classList.add("dropping");
-      else termHost.classList.remove("dropping");
-      if (p.type === "drop") tabs.attach(p.paths);
+      if (p.type === "enter") dragged = p.paths;
+      // Where the pointer is (the event gives physical pixels).
+      const at =
+        "position" in p
+          ? document.elementFromPoint(p.position.x / devicePixelRatio, p.position.y / devicePixelRatio)
+          : null;
+      if (p.type === "leave") {
+        termHost.classList.remove("dropping");
+        this.onExternalDrop([], null, false);
+        return;
+      }
+      const elsewhere = this.onExternalDrop(p.type === "drop" ? p.paths : dragged, at, p.type === "drop");
+      termHost.classList.toggle("dropping", !elsewhere && p.type !== "drop");
+      if (p.type === "drop" && !elsewhere) tabs.attach(p.paths);
     });
   }
 
@@ -246,7 +329,65 @@ export class Attachments {
   private onMouseMove(e: MouseEvent) {
     const { clientX, clientY } = e;
     cancelAnimationFrame(this.hoverFrame);
-    this.hoverFrame = requestAnimationFrame(() => this.setHit(this.hitAt(clientX, clientY), clientX));
+    this.hoverFrame = requestAnimationFrame(() => {
+      this.showMenuHover(this.menuAt(clientX, clientY));
+      this.setHit(this.hitAt(clientX, clientY), clientX);
+    });
+  }
+
+  // ── clicking Claude Code's menu items ─────────────────
+
+  private menuHover: HTMLElement | null = null;
+
+  private menuAt(x: number, y: number): MenuHit | null {
+    const term = this.tabs.activeTerm;
+    if (!term || this.tabs.activeKind !== "claude") return null;
+    const geo = this.geometry(term);
+    if (!geo) return null;
+    const r = Math.floor((y - geo.screen.top) / geo.cellH);
+    const col = Math.floor((x - geo.screen.left) / geo.cellW);
+    if (r < 0 || r >= term.rows || col < 0 || col >= term.cols) return null;
+    return menuItemAt(term, term.buffer.active.viewportY + r);
+  }
+
+  /** A soft highlight on the menu item under the pointer. */
+  private showMenuHover(hit: MenuHit | null) {
+    const term = this.tabs.activeTerm;
+    const geo = term && this.geometry(term);
+    document.body.classList.toggle("menu-hover", !!hit);
+    if (!hit || !term || !geo) {
+      this.menuHover?.remove();
+      this.menuHover = null;
+      return;
+    }
+    if (!this.menuHover) {
+      this.menuHover = document.createElement("div");
+      this.menuHover.className = "menu-item-hover";
+      this.panes.append(this.menuHover);
+    }
+    const top = geo.top + (hit.row - term.buffer.active.viewportY) * geo.cellH;
+    Object.assign(this.menuHover.style, {
+      top: `${top}px`,
+      left: `${geo.left}px`,
+      width: `${geo.screen.width}px`,
+      height: `${geo.cellH}px`,
+    });
+  }
+
+  /** Picks the item: arrow keys to it, then Enter — exactly what the keyboard would do. */
+  private async pickMenuItem(hit: MenuHit) {
+    const session = this.tabs.activeSession;
+    const term = this.tabs.activeTerm;
+    if (!session || !term) return;
+    const app = term.modes.applicationCursorKeysMode;
+    const key = hit.delta > 0 ? (app ? "\x1bOB" : "\x1b[B") : app ? "\x1bOA" : "\x1b[A";
+    for (let i = 0; i < Math.abs(hit.delta); i++) {
+      session.send(key);
+      // One key per read: the menu handles keys one at a time.
+      await new Promise((r) => setTimeout(r, 30));
+    }
+    session.send("\r");
+    session.focus();
   }
 
   private hitAt(x: number, y: number): Hit | null {
@@ -336,6 +477,14 @@ export class Attachments {
 
   private onMouseDown(e: MouseEvent) {
     if (e.button !== 0) return;
+    const menu = !e.shiftKey && !e.ctrlKey && this.menuAt(e.clientX, e.clientY);
+    if (menu) {
+      e.preventDefault();
+      e.stopPropagation();
+      this.showMenuHover(null);
+      this.pickMenuItem(menu);
+      return;
+    }
     const hit = this.hitAt(e.clientX, e.clientY);
     if (!hit) return;
     // Images open on a plain click; other files on Ctrl+click, so clicking text still works.

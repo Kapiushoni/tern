@@ -1,5 +1,6 @@
 import { translateTree } from "./i18n";
 import { showCombo } from "./settings";
+import { paint, wallpaper } from "./wallpapers";
 
 /** "TERN" in block letters: the launch splash and the start screen. */
 export const LOGO = [
@@ -36,15 +37,21 @@ export class StartScreen {
 
   constructor(private host: HTMLElement) {}
 
-  show(recent: string[], logo: boolean, keys: { newClaude: string; newShell: string }) {
+  show(recent: string[], logo: boolean, keys: { newClaude: string; newShell: string }, wall = "none") {
     this.hide();
     const el = document.createElement("div");
     el.className = "start-screen";
-    const head = logo
-      ? `<pre class="start-logo"></pre>`
-      : `<div class="start-word">tern</div>`;
+    const pic = wallpaper(wall);
+    // With a picture the screen is the picture; without one, the logo as before.
+    const head = pic
+      ? ""
+      : logo
+        ? `<pre class="start-logo"></pre>`
+        : `<div class="start-word">tern</div>`;
     el.innerHTML =
+      (pic ? `<div class="start-wall"></div>` : "") +
       head +
+      `<div class="start-card">` +
       `<div class="start-sub" data-i18n="a terminal workspace for Claude Code"></div>` +
       `<div class="start-cols">` +
       `<div class="start-recent"><div class="start-label" data-i18n="recent projects"></div><div class="start-list"></div></div>` +
@@ -52,8 +59,12 @@ export class StartScreen {
       `<button class="start-btn start-open"><span data-i18n="Open folder…"></span></button>` +
       `<div class="start-keys"><kbd class="k-claude"></kbd> <span data-i18n="Claude in the current folder"></span></div>` +
       `<div class="start-keys"><kbd class="k-shell"></kbd> <span data-i18n="plain terminal"></span></div>` +
-      `</div></div>`;
-    if (logo) el.querySelector(".start-logo")!.textContent = LOGO;
+      `</div></div></div>`;
+    if (pic) {
+      el.classList.add("has-wall");
+      paint(el.querySelector<HTMLElement>(".start-wall")!, pic);
+    }
+    el.querySelector(".start-logo")?.replaceChildren(LOGO);
     el.querySelector(".k-claude")!.textContent = showCombo(keys.newClaude);
     el.querySelector(".k-shell")!.textContent = showCombo(keys.newShell);
     const list = el.querySelector(".start-list")!;

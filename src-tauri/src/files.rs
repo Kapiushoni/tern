@@ -124,6 +124,61 @@ pub fn move_entry(path: String, to_dir: String) -> Result<String, String> {
     Ok(to.to_string_lossy().into_owned())
 }
 
+/// Copies files and folders (dropped from Explorer, or picked) into a folder. A name that is
+/// taken gets a number: "notes (1).txt". Returns the new paths.
+#[tauri::command]
+pub async fn copy_into(paths: Vec<String>, to_dir: String) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let dest_dir = PathBuf::from(&to_dir);
+        if !dest_dir.is_dir() {
+            return Err("not a folder".to_string());
+        }
+        let mut out = Vec::new();
+        for p in paths {
+            let from = PathBuf::from(&p);
+            if dest_dir.starts_with(&from) {
+                return Err("into-itself".into());
+            }
+            let name = from.file_name().ok_or("invalid-name")?.to_string_lossy().into_owned();
+            let to = free_name(&dest_dir, &name);
+            copy_any(&from, &to).map_err(|e| e.to_string())?;
+            out.push(to.to_string_lossy().into_owned());
+        }
+        Ok(out)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// `name` in `dir`, or "name (1).ext", "name (2).ext"… if taken.
+fn free_name(dir: &std::path::Path, name: &str) -> PathBuf {
+    let first = dir.join(name);
+    if !first.exists() {
+        return first;
+    }
+    let (stem, ext) = match name.rfind('.') {
+        Some(i) if i > 0 => (&name[..i], &name[i..]),
+        _ => (name, ""),
+    };
+    (1..)
+        .map(|n| dir.join(format!("{stem} ({n}){ext}")))
+        .find(|p| !p.exists())
+        .unwrap()
+}
+
+fn copy_any(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+    if from.is_dir() {
+        std::fs::create_dir_all(to)?;
+        for e in std::fs::read_dir(from)? {
+            let e = e?;
+            copy_any(&e.path(), &to.join(e.file_name()))?;
+        }
+        Ok(())
+    } else {
+        std::fs::copy(from, to).map(|_| ())
+    }
+}
+
 /// Moves a file or folder to the Recycle Bin (never deletes for good).
 #[tauri::command]
 pub fn trash_entry(path: String) -> Result<(), String> {

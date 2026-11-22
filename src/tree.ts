@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
 import { toast } from "./toast";
 import { t } from "./i18n";
 import { fileIcon, iconsReady, setFolderOpen } from "./fileicons";
@@ -370,6 +371,7 @@ export class FileTree {
     items.push(
       { label: t("New file"), run: () => this.startCreate(dir, false) },
       { label: t("New folder"), run: () => this.startCreate(dir, true) },
+      { label: t("Add files…"), run: () => this.pickAndAdd(dir) },
     );
     if (row) {
       items.push(
@@ -516,6 +518,53 @@ export class FileTree {
     } catch (err) {
       toast(explain(err));
     }
+  }
+
+  /** "Add files…": copies the picked files into the folder. */
+  private async pickAndAdd(dir: string) {
+    const picked = await open({ multiple: true, directory: false });
+    const paths = Array.isArray(picked) ? picked : picked ? [picked] : [];
+    if (paths.length) await this.addFiles(paths, dir);
+  }
+
+  /** Copies files from elsewhere into a folder of the project and shows them. */
+  async addFiles(paths: string[], dir: string) {
+    try {
+      const added = await invoke<string[]>("copy_into", { paths, toDir: dir });
+      if (key(dir) !== key(this.root)) this.expanded.add(dir);
+      this.sel = new Set(added);
+      this.selectedPath = added[0] ?? null;
+      await this.rebuild(new Set(this.expanded));
+      toast(added.length === 1 ? t("Added {name}", { name: baseName(added[0]) }) : t("Added {n} items", { n: added.length }));
+    } catch (err) {
+      toast(explain(err));
+    }
+  }
+
+  private externalOver: HTMLElement | null = null;
+
+  /**
+   * Files dragged in from Explorer: over the tree, the folder they would land in lights up, and
+   * a drop copies them there. Returns whether the point is over the tree (else: not ours).
+   */
+  externalDrag(paths: string[], target: Element | null, drop: boolean): boolean {
+    this.externalOver?.classList.remove("drop-into");
+    this.externalOver = null;
+    this.el.classList.remove("drop-root");
+    const sidebar = target?.closest("#sidebar");
+    if (!sidebar || !this.root || !paths.length || target?.closest("#search-view")) return false;
+    const inRows = this.el.contains(target!);
+    const d = inRows ? this.dropDir(target, []) : { dir: this.root, row: null };
+    if (!d) return true;
+    if (drop) {
+      this.addFiles(paths, d.dir);
+      return true;
+    }
+    if (d.row) {
+      this.externalOver = d.row;
+      d.row.classList.add("drop-into");
+    } else this.el.classList.add("drop-root");
+    return true;
   }
 
   private async trashMany(paths: string[]) {

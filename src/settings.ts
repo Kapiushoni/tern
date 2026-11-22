@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { WALLPAPER_IDS } from "./wallpapers";
 
 /**
  * settings.json: everything the user can change. The settings window edits the common part;
@@ -15,6 +16,8 @@ export interface Settings {
   language: Lang;
   theme: "dark" | "light";
   accent: string;
+  /** Start screen picture: one of WALLPAPERS (wallpapers.ts) or "none". */
+  wallpaper: string;
   font: { family: string; size: number };
   effects: { glow: boolean; crt: boolean; asciiLogo: boolean; typewriter: boolean };
   sound: { enabled: boolean; volume: number };
@@ -37,6 +40,7 @@ export const DEFAULTS: Settings = {
   language: "en",
   theme: "dark",
   accent: "#ff2e88",
+  wallpaper: "tern",
   font: { family: "Commit Mono", size: 14 },
   effects: { glow: true, crt: true, asciiLogo: true, typewriter: true },
   sound: { enabled: true, volume: 20 },
@@ -101,6 +105,7 @@ export function normalize(raw: unknown): Settings {
   if (s.theme !== "light") s.theme = "dark";
   if (s.windows.layout !== "floating") s.windows.layout = "tiling";
   if (!/^#[0-9a-f]{6}$/i.test(s.accent)) s.accent = DEFAULTS.accent;
+  if (!WALLPAPER_IDS.includes(s.wallpaper)) s.wallpaper = DEFAULTS.wallpaper;
   s.font.size = clamp(Math.round(s.font.size), 9, 32);
   s.sound.volume = clamp(Math.round(s.sound.volume), 0, 100);
   s.terminal.scrollback = clamp(Math.round(s.terminal.scrollback), 100, 200000);

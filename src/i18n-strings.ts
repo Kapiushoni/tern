@@ -52,6 +52,8 @@ export const RU: Record<string, string> = {
   "neon glow": "неоновое свечение",
   "CRT lines": "CRT-полоски",
   "ASCII logo": "ASCII-логотип",
+  "Start screen": "Начальный экран",
+  "no picture": "без картинки",
   "typing animation": "анимация печати",
   "Sound when Claude finishes": "Звук, когда Claude закончил",
   on: "вкл.",
@@ -256,6 +258,11 @@ export const RU: Record<string, string> = {
   "Delete {n} items": "Удалить {n} элем.",
   "Moved {n} items to the Recycle Bin": "В корзину перемещено: {n}",
   "{n} items": "{n} элем.",
+  "Hide the file tree (Ctrl+B)": "Скрыть дерево файлов (Ctrl+B)",
+  "File tree (Ctrl+B)": "Дерево файлов (Ctrl+B)",
+  "Add files…": "Добавить файлы…",
+  "Added {name}": "Добавлено: {name}",
+  "Added {n} items": "Добавлено элементов: {n}",
 };
 
 export const UK: Record<string, string> = {
@@ -304,6 +311,8 @@ export const UK: Record<string, string> = {
   "neon glow": "неонове світіння",
   "CRT lines": "CRT-смуги",
   "ASCII logo": "ASCII-логотип",
+  "Start screen": "Початковий екран",
+  "no picture": "без картинки",
   "typing animation": "анімація друку",
   "Sound when Claude finishes": "Звук, коли Claude закінчив",
   on: "увімк.",
@@ -498,4 +507,9 @@ export const UK: Record<string, string> = {
   "Delete {n} items": "Видалити {n} елем.",
   "Moved {n} items to the Recycle Bin": "До кошика переміщено: {n}",
   "{n} items": "{n} елем.",
+  "Hide the file tree (Ctrl+B)": "Сховати дерево файлів (Ctrl+B)",
+  "File tree (Ctrl+B)": "Дерево файлів (Ctrl+B)",
+  "Add files…": "Додати файли…",
+  "Added {name}": "Додано: {name}",
+  "Added {n} items": "Додано елементів: {n}",
 };

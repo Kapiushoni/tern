@@ -1,3 +1,4 @@
+import { paint, WALLPAPERS } from "./wallpapers";
 import { invoke } from "@tauri-apps/api/core";
 import { t, translateTree } from "./i18n";
 import { DEFAULTS, Settings, SettingsStore, showCombo } from "./settings";
@@ -164,6 +165,20 @@ export class SettingsWindow {
       accentControls.push(reset);
     }
     row("Accent colour", ...accentControls);
+
+    // Start screen picture: thumbnails, the tinted one in the current accent.
+    const walls = div("st-walls");
+    for (const w of [...WALLPAPERS, null]) {
+      const id = w?.id ?? "none";
+      const b = document.createElement("button");
+      b.className = "st-wall" + (id === s.wallpaper ? " on" : "");
+      b.title = id;
+      if (w) paint(b, w, true);
+      else b.append(span("st-wall-none", "no picture"));
+      b.addEventListener("click", () => set((x) => (x.wallpaper = id)));
+      walls.append(b);
+    }
+    row("Start screen", walls);
 
     const font = fontPicker(s.font.family, (name) => set((x) => (x.font.family = name || DEFAULTS.font.family)));
     const size = document.createElement("input");

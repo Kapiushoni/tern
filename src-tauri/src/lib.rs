@@ -42,6 +42,7 @@ pub fn run() {
             files::create_entry,
             files::rename_entry,
             files::move_entry,
+            files::copy_into,
             files::trash_entry,
             files::reveal_entry,
             git::git_status,
