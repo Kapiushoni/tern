@@ -79,6 +79,16 @@ jobs:
 
       - run: npm ci
 
+      # Deno runs plugins' background code; bundled next to Tern (tauri.conf.json "externalBin").
+      - name: Deno for plugins
+        shell: bash
+        run: |
+          if [[ "${{ matrix.args }}" == *aarch64-apple* ]]; then T=aarch64-apple-darwin
+          elif [[ "${{ matrix.args }}" == *x86_64-apple* ]]; then T=x86_64-apple-darwin
+          elif [[ "$RUNNER_OS" == "Windows" ]]; then T=x86_64-pc-windows-msvc
+          else T=x86_64-unknown-linux-gnu; fi
+          node scripts/get-deno.mjs "$T"
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

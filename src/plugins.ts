@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { toast } from "./toast";
 import { t } from "./i18n";
 
@@ -6,7 +7,8 @@ import { t } from "./i18n";
  * Plugins. A plugin is a folder with plugin.json and, optionally, main.js, style.css and HTML
  * windows. Its code runs in a sandboxed iframe (its own origin, no network, no access to Tern) and
  * talks to Tern through the `tern` object; Tern checks the plugin's permissions on every call.
- * See PLUGINS.md for the author's side.
+ * Background code ("backend") runs in Deno (plugin_host.rs): the same `tern` calls arrive here
+ * as events and are answered the same way. See PLUGINS.md for the author's side.
  */
 
 export interface SettingSpec {
@@ -34,6 +36,8 @@ export interface Manifest {
   description?: string;
   author?: string;
   main?: string;
+  /** Background code run by Deno (JS or TS), with Deno's APIs limited to the granted permissions. */
+  backend?: string;
   style?: string;
   theme?: ThemeSpec;
   /** "files", "commands", "terminal", "network" (any host) or "network:host.com". */
@@ -65,10 +69,13 @@ interface Running {
   commands: { name: string; key?: string; cb: string }[];
   events: Set<string>;
   style: HTMLStyleElement | null;
+  /** Its background code is running in the plugin host. */
+  backend: boolean;
 }
 
 /** What a permission means, for the install dialog. */
 export function describePermission(p: string): string {
+  if (p === "background") return t("Run in the background while Tern is open");
   if (p === "files") return t("Read and change files in the open project");
   if (p === "commands") return t("Run commands on this computer");
   if (p === "terminal") return t("Type text into the terminal");
@@ -103,13 +110,16 @@ const SHIM = `(() => {
   }
   try { if (window.chrome) Object.defineProperty(window, "chrome", { value: undefined, configurable: false }); } catch {}
   let seq = 0;
-  const pending = new Map(), callbacks = new Map(), listeners = {};
+  const tag = Math.random().toString(36).slice(2, 8);
+  const pending = new Map(), callbacks = new Map(), listeners = {}, messageListeners = [];
+  let early = []; // messages from before tern.onMessage was called
   const call = (method, ...args) => new Promise((resolve, reject) => {
     const id = ++seq;
     pending.set(id, { resolve, reject });
     parent.postMessage({ tern: 1, id, method, args }, "*");
   });
-  const cb = (fn) => { if (typeof fn !== "function") return null; const k = "cb" + (++seq); callbacks.set(k, fn); return k; };
+  // Keys unique per frame: the plugin's code, its windows and its backend all get every callback.
+  const cb = (fn) => { if (typeof fn !== "function") return null; const k = tag + "." + (++seq); callbacks.set(k, fn); return k; };
   addEventListener("message", (e) => {
     if (e.source !== parent) return;
     const m = e.data;
@@ -122,6 +132,9 @@ const SHIM = `(() => {
       if (f) try { f(...(m.args || [])); } catch (err) { call("log", String(err && err.stack || err)); }
     } else if (m.event) {
       for (const f of listeners[m.event] || []) try { f(m.data); } catch (err) { call("log", String(err && err.stack || err)); }
+    } else if ("message" in m) {
+      if (early) early.push(m.message);
+      for (const f of messageListeners) try { f(m.message); } catch (err) { call("log", String(err && err.stack || err)); }
     } else if (typeof m.insertText === "string") {
       // Voice input: type into the focused field of this window.
       const el = document.activeElement;
@@ -159,6 +172,12 @@ const SHIM = `(() => {
     run: (command) => call("run", command),
     fetch: (url, opts) => call("fetch", url, opts || {}),
     terminal: { send: (text) => call("terminal.send", String(text)) },
+    send: (message) => call("send", message),
+    onMessage: (fn) => {
+      messageListeners.push(fn);
+      const queued = early || []; early = null;
+      for (const msg of queued) Promise.resolve().then(() => fn(msg)).catch((err) => call("log", String(err)));
+    },
   };
 })();`;
 
@@ -204,6 +223,7 @@ export class PluginHost {
     this.windowsHost.id = "plugin-layer";
     document.body.append(this.windowsHost);
     window.addEventListener("message", (e) => this.onMessage(e));
+    listen<{ id: string; msg: unknown; exit: string | null }>("plugin-backend", (e) => this.onBackend(e.payload));
   }
 
   // ── loading ───────────────────────────────────────────
@@ -261,7 +281,7 @@ export class PluginHost {
 
   private async start(p: Plugin) {
     const m = p.manifest!;
-    const r: Running = { frame: null, windows: new Map(), buttons: [], menu: [], commands: [], events: new Set(), style: null };
+    const r: Running = { frame: null, windows: new Map(), buttons: [], menu: [], commands: [], events: new Set(), style: null, backend: false };
     this.running.set(p.id, r);
     p.running = true;
     if (m.style) {
@@ -270,6 +290,14 @@ export class PluginHost {
       r.style.dataset.plugin = p.id;
       r.style.textContent = css;
       document.head.append(r.style);
+    }
+    if (m.backend) {
+      try {
+        await invoke("plugin_backend_start", { id: p.id, file: m.backend, perms: p.data.granted });
+        r.backend = true;
+      } catch (e) {
+        toast(t("Plugin {name}: {error}", { name: m.name, error: String(e) }), 6000);
+      }
     }
     if (m.main) {
       const code = await invoke<string>("plugin_file", { id: p.id, path: m.main }).catch((e) => {
@@ -292,6 +320,7 @@ export class PluginHost {
     const r = this.running.get(id);
     if (!r) return;
     r.frame?.remove();
+    if (r.backend) invoke("plugin_backend_stop", { id }).catch(() => {});
     for (const w of r.windows.values()) w.el.remove();
     for (const b of r.buttons) b.remove();
     r.style?.remove();
@@ -347,17 +376,50 @@ export class PluginHost {
   emit(event: string, data: Record<string, unknown> = {}) {
     for (const r of this.running.values()) {
       if (!r.events.has(event)) continue;
-      const msg = { tern: 1, event, data };
-      r.frame?.contentWindow?.postMessage(msg, "*");
-      for (const w of r.windows.values()) w.frame.contentWindow?.postMessage(msg, "*");
+      this.deliver(r, { tern: 1, event, data });
     }
   }
 
   private callback(id: string, cb: string, args: unknown[]) {
     const r = this.running.get(id);
-    const msg = { tern: 1, callback: cb, args };
-    r?.frame?.contentWindow?.postMessage(msg, "*");
-    for (const w of r?.windows.values() ?? []) w.frame.contentWindow?.postMessage(msg, "*");
+    if (r) this.deliver(r, { tern: 1, callback: cb, args });
+  }
+
+  /** To the parts of a plugin: its code and windows (ui), and its background code (backend). */
+  private deliver(r: Running, msg: Record<string, unknown>, ui = true, backend = true) {
+    if (ui) {
+      r.frame?.contentWindow?.postMessage(msg, "*");
+      for (const w of r.windows.values()) w.frame.contentWindow?.postMessage(msg, "*");
+    }
+    const id = [...this.running].find(([, x]) => x === r)?.[0];
+    if (backend && r.backend && id) invoke("plugin_backend_send", { id, msg }).catch(() => {});
+  }
+
+  /** A call (or a crash) from a plugin's background code. */
+  private async onBackend({ id, msg, exit }: { id: string; msg: unknown; exit: string | null }) {
+    if (exit) {
+      if (id === "") {
+        // The whole host stopped: every backend is gone.
+        for (const r of this.running.values()) r.backend = false;
+        return;
+      }
+      const r = this.running.get(id);
+      if (r) r.backend = false;
+      const p = this.plugins.find((x) => x.id === id);
+      toast(t("Plugin {name}: {error}", { name: p?.manifest?.name ?? id, error: exit }), 6000);
+      return;
+    }
+    const m = msg as { tern?: number; id?: number; method?: unknown; args?: unknown } | null;
+    if (!m || m.tern !== 1 || typeof m.method !== "string") return;
+    const p = this.plugins.find((x) => x.id === id);
+    if (!p?.manifest || !this.running.get(id)?.backend) return;
+    let reply: Record<string, unknown>;
+    try {
+      reply = { tern: 1, reply: m.id, value: await this.handle(p, m.method, Array.isArray(m.args) ? m.args : [], "backend") };
+    } catch (err) {
+      reply = { tern: 1, reply: m.id, error: String(err instanceof Error ? err.message : err) };
+    }
+    invoke("plugin_backend_send", { id, msg: reply }).catch(() => {});
   }
 
   // ── the API ───────────────────────────────────────────
@@ -394,7 +456,7 @@ export class PluginHost {
     const p = this.plugins.find((x) => x.id === from.id);
     if (!p?.manifest) return;
     try {
-      const value = await this.handle(p, m.method, Array.isArray(m.args) ? m.args : []);
+      const value = await this.handle(p, m.method, Array.isArray(m.args) ? m.args : [], "ui");
       from.win.postMessage({ tern: 1, reply: m.id, value }, "*");
     } catch (err) {
       from.win.postMessage({ tern: 1, reply: m.id, error: String(err instanceof Error ? err.message : err) }, "*");
@@ -411,7 +473,8 @@ export class PluginHost {
     return root;
   }
 
-  private async handle(p: Plugin, method: string, args: unknown[]): Promise<unknown> {
+  /** One `tern.*` call. `from`: the plugin's code or windows ("ui"), or its background code. */
+  private async handle(p: Plugin, method: string, args: unknown[], from: "ui" | "backend"): Promise<unknown> {
     const r = this.running.get(p.id)!;
     const m = p.manifest!;
     const str = (v: unknown, what: string) => {
@@ -422,6 +485,12 @@ export class PluginHost {
       case "log":
         console.warn(`[plugin ${p.id}]`, args[0]);
         return;
+      case "send": {
+        // Between the plugin's background code and its windows / main.js, both ways.
+        const message = JSON.parse(JSON.stringify(args[0] ?? null));
+        this.deliver(r, { tern: 1, message }, from === "backend", from === "ui");
+        return;
+      }
       case "notify":
         toast(`${m.name}: ${str(args[0], "text").slice(0, 300)}`, 4000);
         return;

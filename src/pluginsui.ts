@@ -15,6 +15,8 @@ interface CatalogEntry {
   author?: string;
   version?: string;
   permissions?: string[];
+  /** It has background code (Deno). */
+  backend?: boolean;
   /** A zip to download (a GitHub archive) and the plugin's folder inside it. */
   url: string;
   path?: string;
@@ -147,7 +149,7 @@ export class PluginsWindow {
       box.checked = this.host.canRun(p);
       box.addEventListener("change", async () => {
         if (box.checked) {
-          const perms = p.manifest!.permissions ?? [];
+          const perms = [...(p.manifest!.backend ? ["background"] : []), ...(p.manifest!.permissions ?? [])];
           if (perms.length && !(await this.confirm(p.manifest!.name, perms))) {
             box.checked = false;
             return;
@@ -265,7 +267,7 @@ export class PluginsWindow {
   }
 
   private async install(e: CatalogEntry, b: HTMLButtonElement) {
-    const perms = e.permissions ?? [];
+    const perms = [...(e.backend ? ["background"] : []), ...(e.permissions ?? [])];
     if (perms.length && !(await this.confirm(e.name, perms))) return;
     b.disabled = true;
     b.textContent = t("installing…");

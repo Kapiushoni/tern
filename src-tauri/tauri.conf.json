@@ -57,6 +57,7 @@
         "installerHooks": "./windows/hooks.nsh"
       }
     },
+    "externalBin": ["binaries/deno"],
     "createUpdaterArtifacts": true,
     "publisher": "Tern",
     "shortDescription": "Fast, minimal terminal workspace for Claude Code",

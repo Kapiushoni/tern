@@ -86,6 +86,7 @@ Requirements:
 
 ```sh
 npm install
+node scripts/get-deno.mjs   # Deno for plugins' background code (bundled with Tern)
 npm run tauri dev     # run in development
 npm run tauri build   # build the installer
 ```

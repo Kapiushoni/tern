@@ -5,6 +5,7 @@ mod fs;
 mod git;
 mod hooks;
 mod preview;
+mod plugin_host;
 mod plugins;
 mod pty;
 mod search;
@@ -26,6 +27,7 @@ pub fn run() {
         .manage(voice::VoiceState::default())
         .manage(search::SearchState::default())
         .manage(preview::PreviewState::default())
+        .manage(plugin_host::PluginHostState::default())
         .setup(|app| {
             pty::allow_ctrl_c();
             voice::init();
@@ -81,6 +83,9 @@ pub fn run() {
             plugins::plugin_fs_list,
             plugins::plugin_run,
             plugins::plugin_fetch,
+            plugin_host::plugin_backend_start,
+            plugin_host::plugin_backend_stop,
+            plugin_host::plugin_backend_send,
             tools::ide_list,
             tools::ide_open,
             tools::run_detect,

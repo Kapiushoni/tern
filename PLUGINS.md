@@ -31,6 +31,7 @@ Edit the code, click **Reload plugins** again to see the change. That's the whol
   "description": "One line about what it does.",
   "author": "you",
   "main": "main.js",
+  "backend": "backend.ts",
   "style": "style.css",
   "permissions": ["files"],
   "settings": [
@@ -42,6 +43,8 @@ Edit the code, click **Reload plugins** again to see the change. That's the whol
 Only `name` is required. The folder name is the plugin's id (letters, digits, `-`, `_`).
 
 - `main` — your code. Runs once when Tern starts (or the plugin is turned on).
+- `backend` — background code run by Deno, with real system APIs (see
+  [Background code](#background-code-deno)).
 - `style` — a CSS file added to Tern's page: restyle anything.
 - `theme` — colours, no code at all (see [Themes](#themes)).
 - `permissions` — what the plugin may do beyond the basics (see below). Tern shows the list when
@@ -101,6 +104,10 @@ await tern.files.list("src")                // names; folders end with "/"
 await tern.run("git log -1 --oneline")      // "commands": { code, stdout, stderr }
 await tern.terminal.send("explain this file") // "terminal": into the active tab (not sent)
 await tern.fetch(url, { method: "POST", headers: {}, body: {} })  // "network:…": { status, ok, text, json }
+
+// Between your windows / main.js and your background code
+tern.send({ any: "json" })                  // to the other side
+tern.onMessage((msg) => {})                 // from the other side
 ```
 
 `body` can be an object (sent as JSON) or a string.
@@ -120,6 +127,58 @@ your window has the focus, the recognised text is typed into it (an `input` even
 typed). Tern's voice and Esc keys keep working while your window has the focus.
 
 See [`plugins/todo`](plugins/todo) for a complete example.
+
+## Background code (Deno)
+
+`main.js` lives in a sandbox inside Tern's page. For real work — watching files, keeping a
+connection open, running a language tool, crunching data — add a `backend`: a JavaScript or
+TypeScript file that Tern runs in [Deno](https://deno.com), bundled with Tern. It starts with the
+plugin and runs while Tern is open, whether or not any window of yours is.
+
+`plugin.json`
+```json
+{ "name": "Hello backend", "backend": "backend.ts", "main": "main.js", "permissions": ["commands"] }
+```
+
+`backend.ts`
+```ts
+tern.on("claude:done", async (e) => {
+  const out = await new Deno.Command("git", { args: ["status", "--short"], cwd: e.project }).output();
+  tern.send({ changed: new TextDecoder().decode(out.stdout).split("
+").filter(Boolean).length });
+});
+```
+
+`main.js`
+```js
+tern.onMessage((m) => tern.notify(`${m.changed} files changed`));
+```
+
+The same `tern` object is there (everything above works), plus `tern.pluginDir` (your folder)
+and `tern.dataDir` (a folder of your own to keep files in). Deno's own APIs work too, limited by
+your permissions:
+
+| Permission | In background code, Deno may also… |
+| --- | --- |
+| *(none)* | read your plugin's folder; read and write `tern.dataDir` |
+| `commands` | start programs (`Deno.Command`) |
+| `network:example.com` | `fetch` / WebSockets to exactly that host |
+| `network` | connect anywhere |
+
+`files` is through `tern.files.*` (the open project). Environment variables, other folders and
+native libraries stay closed. When people turn the plugin on, Tern also tells them it runs in the
+background.
+
+**Libraries.** Nothing is downloaded when your plugin runs: `npm:` and `https:` imports are off.
+Bundle your code and its libraries into one file and ship that:
+
+```sh
+deno bundle --output backend.js src/backend.ts
+```
+
+**Logs.** `console.log` from background code goes to Tern's developer console
+(`[plugin your-id] …`). An uncaught error stops the background code and shows a message; turn the
+plugin off and on (or **Reload plugins**) to start it again.
 
 ## Themes
 
@@ -157,13 +216,15 @@ colours in settings.json still win over a theme. See [`plugins/matrix-theme`](pl
   "author": "you",
   "description": "One line.",
   "permissions": ["files"],
+  "backend": false,
   "url": "https://github.com/you/my-plugin/archive/refs/heads/main.zip",
   "path": ""
 }
 ```
 
 `url` is a zip of your repository; `path` is the plugin's folder inside it (`""` for the root).
-List the same permissions as your `plugin.json` — people see them before they install. To ship an
+List the same permissions as your `plugin.json`, and `"backend": true` if it has background code —
+people see them before they install. To ship an
 update, raise `version` in both places.
 
 ## Debugging

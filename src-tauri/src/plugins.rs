@@ -86,6 +86,21 @@ pub fn plugin_file(app: AppHandle, id: String, path: String) -> Result<String, S
     std::fs::read_to_string(file).map_err(|e| e.to_string())
 }
 
+/// For the plugin host: the plugin's folder, its background code file (inside that folder) and a
+/// folder of its own to keep files in. All three as absolute paths.
+pub fn backend_paths(app: &AppHandle, id: &str, file: &str) -> Result<(String, String, String), String> {
+    valid_id(id)?;
+    let dir = plugins_dir(app)?.join(id);
+    let path = inside(&dir, file)?;
+    if !path.is_file() {
+        return Err(format!("{file} is missing"));
+    }
+    let data = data_dir(app)?.join(id);
+    std::fs::create_dir_all(&data).map_err(|e| e.to_string())?;
+    let s = |p: PathBuf| p.to_string_lossy().into_owned();
+    Ok((s(dir), s(path), s(data)))
+}
+
 #[tauri::command]
 pub fn plugin_remove(app: AppHandle, id: String) -> Result<(), String> {
     valid_id(&id)?;
