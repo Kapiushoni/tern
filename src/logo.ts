@@ -1,0 +1,36 @@
+/**
+ * Tern's logo: a tern in flight (one path). Drawn in the accent colour in the title bar, and as
+ * the window's icon (taskbar, Alt+Tab), redrawn when the accent changes. The installed app's own
+ * icon files (src-tauri/icons, from app-icon.svg) stay in the default red.
+ */
+
+export const LOGO_VIEWBOX = "-51.5 16.5 1220 1220";
+export const LOGO_PATH =
+  "M 626,54 627,57 635,61 633,62 633,65 637,68 637,72 641,74 635,77 635,82 627,87 629,92 619,99 620,106 611,113 611,119 600,127 601,134 597,136 592,142 597,147 597,149 590,155 590,158 595,159 593,162 594,167 599,165 602,166 595,171 582,187 554,208 544,218 543,222 532,234 531,239 523,252 523,257 516,272 515,278 517,277 518,279 503,310 502,316 507,317 482,333 405,362 277,386 187,405 140,417 97,432 140,420 191,412 216,410 258,410 278,413 290,413 304,411 304,413 294,416 285,421 283,425 286,429 282,432 284,440 288,444 299,448 310,449 315,451 333,452 299,469 286,480 283,485 283,487 286,488 278,493 268,502 250,514 203,538 124,574 119,578 245,532 301,510 366,481 445,442 489,434 514,434 519,437 512,438 533,452 541,459 533,460 533,462 558,491 556,492 549,488 548,489 554,501 561,508 558,510 560,515 572,527 566,527 567,532 577,545 592,558 589,559 581,555 580,556 589,573 606,590 597,591 601,598 612,609 609,612 609,615 620,625 618,628 621,634 632,647 628,650 635,661 632,663 632,669 638,678 640,686 648,693 645,702 646,710 648,712 653,710 656,711 647,724 644,733 644,745 646,748 660,740 661,742 648,763 644,774 643,783 646,795 652,792 653,793 649,809 650,833 653,842 659,836 660,837 660,879 665,898 667,899 670,893 672,893 671,909 675,942 680,955 684,950 685,951 684,988 686,1004 690,1019 692,1018 693,1014 695,1014 694,1044 697,1066 702,1082 706,1077 707,1078 701,1121 701,1151 703,1150 704,1152 693,1186 692,1199 694,1199 705,1188 720,1168 749,1121 774,1068 793,1014 811,942 826,864 834,812 844,730 846,705 846,670 848,670 848,673 849,671 848,633 841,603 833,577 826,563 817,550 773,496 754,468 747,454 740,433 738,421 738,407 740,397 747,388 786,377 853,348 882,340 903,337 929,336 960,339 1020,348 980,328 924,312 912,300 898,290 882,282 864,276 851,273 829,271 769,271 747,273 736,260 732,252 729,240 730,226 735,212 750,190 765,175 802,144 809,136 810,128 798,115 786,107 745,86 687,66 633,54 Z";
+
+/** An <svg> element with the logo, filled with currentColor. */
+export function logoSvg(): SVGSVGElement {
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", LOGO_VIEWBOX);
+  const path = document.createElementNS(ns, "path");
+  path.setAttribute("d", LOGO_PATH);
+  svg.append(path);
+  return svg;
+}
+
+/** The logo as a PNG of `size` pixels in `color`, for the window icon. */
+export async function logoPng(color: string, size = 256): Promise<Uint8Array> {
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  const [x, y, w] = LOGO_VIEWBOX.split(" ").map(Number);
+  ctx.scale(size / w, size / w);
+  ctx.translate(-x, -y);
+  ctx.fillStyle = color;
+  ctx.fill(new Path2D(LOGO_PATH));
+  const blob = await new Promise<Blob>((resolve, reject) =>
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("no png"))), "image/png"),
+  );
+  return new Uint8Array(await blob.arrayBuffer());
+}

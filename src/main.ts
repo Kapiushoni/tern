@@ -24,6 +24,7 @@ import { PluginHost } from "./plugins";
 import { PluginsWindow } from "./pluginsui";
 import type { PaletteCommand } from "./quickopen";
 import { LanguageServers } from "./lsp";
+import { logoPng, logoSvg } from "./logo";
 
 const app = document.getElementById("app")!;
 const root = document.documentElement;
@@ -192,6 +193,18 @@ function hexAlpha(hex: string, a: number) {
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
 }
 
+document.getElementById("logo")!.append(logoSvg());
+
+/** The window's icon (taskbar, Alt+Tab): the logo in the accent colour. */
+let iconColor = "";
+function setWindowIcon(color: string) {
+  if (color === iconColor) return;
+  iconColor = color;
+  logoPng(color)
+    .then((png) => (iconColor === color ? getCurrentWindow().setIcon(png) : undefined))
+    .catch(() => {});
+}
+
 function applyLook(s: Settings) {
   if (s.theme === "light") root.dataset.theme = "light";
   else delete root.dataset.theme;
@@ -205,6 +218,7 @@ function applyLook(s: Settings) {
   // The light theme keeps the default accent a little darker, for contrast on white.
   const accent = s.accent.toLowerCase() === "#ff2e88" && light ? "#d6006e" : s.accent;
   setVar("--accent", accent);
+  setWindowIcon(accent);
   setVar("--accent-soft", hexAlpha(accent, light ? 0.1 : 0.14));
   // Glow off = an invisible shadow, so every rule using --glow simply loses it.
   setVar("--glow", s.effects.glow ? `0 0 6px ${hexAlpha(accent, light ? 0.35 : 0.55)}` : "0 0 0 transparent");

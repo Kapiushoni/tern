@@ -98,6 +98,11 @@ button { font: inherit; color: inherit; }
     "status status status";
 }
 
+/* The logo at the left of the title bar, in the accent colour. */
+#logo { display: flex; align-items: center; padding: 0 4px 0 10px; color: var(--accent); }
+#logo svg { width: 22px; height: 22px; fill: currentColor; pointer-events: none; }
+.fx-glow #logo svg { filter: drop-shadow(0 0 4px var(--accent-soft)); }
+
 /* Plugins' status bar: only there while some plugin shows something in it. */
 #statusbar {
   grid-area: status;
