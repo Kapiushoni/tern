@@ -33,6 +33,8 @@ export interface SavedTab {
 
 interface Tab extends SavedTab {
   key: string;
+  /** Extra Claude arguments (a tab a plugin opened). */
+  args?: string[];
   activity: Activity;
   used: boolean;
   /** Claude asked for permission mid-task; the next keystroke means it is working again. */
@@ -62,14 +64,15 @@ export class Tabs {
   /** Fired when the active tab changes or its terminal is replaced. */
   onTerm: () => void = () => {};
   /** Events for plugins: "claude:working", "claude:done", "claude:waiting", "tab:open", "tab:close", "tab:switch". */
-  onEvent: (name: string, data: Record<string, unknown>) => void = () => {};
+  /** Something plugins hear about. `detail` only goes to plugins with the "claude" permission. */
+  onEvent: (name: string, data: Record<string, unknown>, detail?: Record<string, unknown>) => void = () => {};
 
   constructor(
     private strip: HTMLElement,
     private host: HTMLElement,
   ) {
-    listen<{ tab: string; event: string; session_id: string | null }>("claude-hook", (e) =>
-      this.onHook(e.payload.tab, e.payload.event, e.payload.session_id),
+    listen<{ tab: string; event: string; session_id: string | null; data: Record<string, unknown> }>("claude-hook", (e) =>
+      this.onHook(e.payload.tab, e.payload.event, e.payload.session_id, e.payload.data ?? {}),
     );
     strip.addEventListener("auxclick", (e) => {
       if (e.button !== 1) return;
@@ -120,8 +123,8 @@ export class Tabs {
   async open(
     kind: TermKind,
     cwd: string,
-    opts: { resume?: string; focus?: boolean; images?: Record<number, string>; run?: string; label?: string; win?: Rect } = {},
-  ) {
+    opts: { resume?: string; focus?: boolean; images?: Record<number, string>; run?: string; label?: string; win?: Rect; args?: string[] } = {},
+  ): Promise<string> {
     const key = newKey();
     const el = document.createElement("div");
     el.className = `tab ${kind}`;
@@ -148,6 +151,7 @@ export class Tabs {
       awaitingAnswer: false,
       // Tag numbers belong to one Claude conversation: only keep them when resuming it.
       images: opts.resume ? { ...opts.images } : {},
+      args: opts.args,
       term: null!,
     };
     this.tabs.push(tab);
@@ -170,8 +174,9 @@ export class Tabs {
     this.relayout();
     // The shell reads it as soon as its prompt is up (ConPTY holds the input until then).
     if (opts.run) tab.term.send(opts.run + "\r");
-    this.onEvent("tab:open", { kind: tab.kind, project: tab.cwd });
+    this.onEvent("tab:open", { kind: tab.kind, project: tab.cwd, tab: tab.key });
     this.onChange();
+    return key;
   }
 
   private async spawn(tab: Tab, resume?: string) {
@@ -225,7 +230,7 @@ export class Tabs {
       this.onTerm();
     }
     try {
-      await term.start(tab.kind, tab.cwd, tab.key, resume);
+      await term.start(tab.kind, tab.cwd, tab.key, resume, tab.args);
     } catch (err) {
       if (String(err).includes("claude-not-found")) {
         // Stage 1 fallback: turn this tab into a shell. The install screen comes in stage 7.
@@ -353,7 +358,7 @@ export class Tabs {
     });
     this.onActivate(tab.cwd);
     this.onTerm();
-    this.onEvent("tab:switch", { kind: tab.kind, project: tab.cwd });
+    this.onEvent("tab:switch", { kind: tab.kind, project: tab.cwd, tab: tab.key });
     this.onChange();
   }
 
@@ -364,7 +369,7 @@ export class Tabs {
     tab.term?.dispose();
     tab.el.remove();
     tab.pane.remove();
-    this.onEvent("tab:close", { kind: tab.kind, project: tab.cwd });
+    this.onEvent("tab:close", { kind: tab.kind, project: tab.cwd, tab: tab.key });
     this.relayout();
     if (this.active === tab) {
       this.active = null;
@@ -489,7 +494,28 @@ export class Tabs {
 
 
 
-  private onHook(key: string, event: string, sessionId: string | null) {
+  // ── for plugins ───────────────────────────────────────
+
+  /** The open tabs, as plugins see them. */
+  list() {
+    return this.tabs.map((t) => ({
+      id: t.key,
+      kind: t.kind,
+      project: t.cwd,
+      title: t.el.querySelector(".dir")?.textContent ?? "",
+      active: t === this.active,
+      activity: t.activity,
+    }));
+  }
+
+  /** A tab's terminal: the given one, or the active one. */
+  sessionOf(id?: string | null) {
+    const tab = id ? this.tabs.find((t) => t.key === id) : this.active;
+    if (!tab) throw new Error(id ? "no such tab" : "no terminal tab is open");
+    return tab.term;
+  }
+
+  private onHook(key: string, event: string, sessionId: string | null, data: Record<string, unknown>) {
     const tab = this.tabs.find((t) => t.key === key);
     if (!tab) return;
     if (sessionId && sessionId !== tab.sessionId) {
@@ -497,6 +523,8 @@ export class Tabs {
       this.onChange();
     }
     const unseen = !(document.hasFocus() && this.active === tab);
+    const base = { project: tab.cwd, tab: tab.key };
+    const detail = { sessionId: sessionId ?? tab.sessionId ?? null, transcript: data.transcript_path ?? null };
     switch (event) {
       case "UserPromptSubmit":
         tab.awaitingAnswer = false;
@@ -505,13 +533,16 @@ export class Tabs {
           this.onChange();
         }
         this.setActivity(tab, "working");
-        this.onEvent("claude:working", { project: tab.cwd });
+        this.onEvent("claude:working", base, { ...detail, prompt: data.prompt ?? null });
+        break;
+      case "PostToolUse":
+        this.onEvent("claude:tool", base, { ...detail, tool: data.tool_name ?? null, input: data.tool_input ?? null });
         break;
       case "Stop":
         tab.awaitingAnswer = false;
         if (tab.activity === "working") {
           if (unseen) chime();
-          this.onEvent("claude:done", { project: tab.cwd, seen: !unseen });
+          this.onEvent("claude:done", { ...base, seen: !unseen }, detail);
         }
         this.setActivity(tab, "done");
         break;
@@ -521,7 +552,7 @@ export class Tabs {
           tab.awaitingAnswer = true;
           if (unseen) chime();
           this.setActivity(tab, "done");
-          this.onEvent("claude:waiting", { project: tab.cwd, seen: !unseen });
+          this.onEvent("claude:waiting", { ...base, seen: !unseen }, { ...detail, message: data.message ?? null });
         }
         break;
     }

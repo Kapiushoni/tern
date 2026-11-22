@@ -129,6 +129,14 @@ fn send(app: &AppHandle, state: &State<PluginHostState>, line: Value, start_if_n
     Ok(())
 }
 
+/// Where Claude Code keeps its conversation logs (CLAUDE_CONFIG_DIR, else ~/.claude).
+fn claude_projects(app: &AppHandle) -> Option<String> {
+    let base = std::env::var_os("CLAUDE_CONFIG_DIR")
+        .map(PathBuf::from)
+        .or_else(|| app.path().home_dir().ok().map(|h| h.join(".claude")))?;
+    Some(base.join("projects").to_string_lossy().into_owned())
+}
+
 /// Starts (or restarts) a plugin's background code with the permissions the user granted.
 #[tauri::command]
 pub fn plugin_backend_start(
@@ -139,10 +147,11 @@ pub fn plugin_backend_start(
     perms: Vec<String>,
 ) -> Result<(), String> {
     let (dir, path, data) = crate::plugins::backend_paths(&app, &id, &file)?;
+    let claude = claude_projects(&app);
     send(
         &app,
         &state,
-        json!({ "op": "start", "id": id, "file": path, "dir": dir, "data": data, "perms": perms }),
+        json!({ "op": "start", "id": id, "file": path, "dir": dir, "data": data, "perms": perms, "claude": claude }),
         true,
     )
 }

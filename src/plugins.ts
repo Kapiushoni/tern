@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { toast } from "./toast";
 import { t } from "./i18n";
+import { linkRules } from "./terminal";
 
 /**
  * Plugins. A plugin is a folder with plugin.json and, optionally, main.js, style.css and HTML
@@ -40,7 +41,7 @@ export interface Manifest {
   backend?: string;
   style?: string;
   theme?: ThemeSpec;
-  /** "files", "commands", "terminal", "network" (any host) or "network:host.com". */
+  /** "files", "commands", "terminal", "terminal:read", "tabs", "claude", "network" or "network:host.com". */
   permissions?: string[];
   settings?: SettingSpec[];
 }
@@ -80,13 +81,16 @@ export function describePermission(p: string): string {
   if (p === "background") return t("Run in the background while Tern is open");
   if (p === "files") return t("Read and change files in the open project");
   if (p === "commands") return t("Run commands on this computer");
-  if (p === "terminal") return t("Type text into the terminal");
+  if (p === "terminal") return t("Type into the terminal and send prompts to Claude");
+  if (p === "terminal:read") return t("Read what the terminal shows, and make text in it clickable");
+  if (p === "tabs") return t("Open terminal and Claude tabs");
+  if (p === "claude") return t("See what Claude does: prompts, tools, changed files, conversation logs");
   if (p === "network") return t("Connect to any site on the internet");
   if (p.startsWith("network:")) return t("Connect to {host}", { host: p.slice(8) });
   return p;
 }
 
-const KNOWN = /^(files|commands|terminal|network|network:[a-z0-9.-]+)$/i;
+const KNOWN = /^(files|commands|terminal|terminal:read|tabs|claude|network|network:[a-z0-9.-]+)$/i;
 
 export function parseManifest(text: string | null): { manifest: Manifest | null; error?: string } {
   if (!text) return { manifest: null, error: "plugin.json is missing" };
@@ -180,7 +184,12 @@ const SHIM = `(() => {
     },
     run: (command) => call("run", command),
     fetch: (url, opts) => call("fetch", url, opts || {}),
-    terminal: { send: (text) => call("terminal.send", String(text)) },
+    terminal: {
+      send: (text, o) => call("terminal.send", String(text), o || {}),
+      read: (o) => call("terminal.read", o || {}),
+      addLink: (o) => call("terminal.addLink", { pattern: String(o.pattern), flags: o.flags, onClick: cb(o.onClick) }),
+    },
+    tabs: { list: () => call("tabs.list"), open: (o) => call("tabs.open", o || {}) },
     send: (message) => call("send", message),
     onMessage: (fn) => {
       messageListeners.push(fn);
@@ -214,8 +223,12 @@ export class PluginHost {
   onChange: () => void = () => {};
   /** The open project folder. */
   getProject: () => string | null = () => null;
-  /** Type text into the active terminal tab. */
-  sendToTerminal: (text: string) => void = () => {};
+  /** The open tabs, a tab's terminal, and opening one (main.ts wires these to Tabs). */
+  tabs: {
+    list: () => unknown[];
+    session: (id?: string | null) => { paste: (t: string) => void; send: (d: string) => void; focus: () => void; text: (n: number) => string };
+    open: (o: { kind: "claude" | "shell"; cwd: string; run?: string; args?: string[]; label?: string }) => Promise<string>;
+  } | null = null;
   /** A key pressed inside a focused plugin window (only Tern's own shortcuts act on it). */
   onHotkey: (e: KeyboardEvent) => void = () => {};
   /** The status bar at the bottom: shown while it has items and the user wants it. */
@@ -337,6 +350,7 @@ export class PluginHost {
     for (const w of r.windows.values()) w.el.remove();
     for (const b of r.buttons) b.remove();
     for (const s of r.status.values()) s.remove();
+    for (let i = linkRules.length - 1; i >= 0; i--) if (linkRules[i].owner === id) linkRules.splice(i, 1);
     r.style?.remove();
     this.running.delete(id);
     const p = this.plugins.find((x) => x.id === id);
@@ -413,11 +427,16 @@ export class PluginHost {
     return false;
   }
 
-  /** Something happened in Tern: tell the plugins listening for it. */
-  emit(event: string, data: Record<string, unknown> = {}) {
-    for (const r of this.running.values()) {
+  /**
+   * Something happened in Tern: tell the plugins listening for it. `detail` (prompts, tools,
+   * session ids) only reaches plugins granted "claude"; claude:tool is theirs alone.
+   */
+  emit(event: string, data: Record<string, unknown> = {}, detail?: Record<string, unknown>) {
+    for (const [id, r] of this.running) {
       if (!r.events.has(event)) continue;
-      this.deliver(r, { tern: 1, event, data });
+      const sees = this.plugins.find((x) => x.id === id)?.data.granted.includes("claude") ?? false;
+      if (event === "claude:tool" && !sees) continue;
+      this.deliver(r, { tern: 1, event, data: sees && detail ? { ...data, ...detail } : data });
     }
   }
 
@@ -502,6 +521,11 @@ export class PluginHost {
     } catch (err) {
       from.win.postMessage({ tern: 1, reply: m.id, error: String(err instanceof Error ? err.message : err) }, "*");
     }
+  }
+
+  private tabsApi() {
+    if (!this.tabs) throw new Error("terminals are not available");
+    return this.tabs;
   }
 
   private need(p: Plugin, perm: string) {
@@ -641,10 +665,48 @@ export class PluginHost {
       case "run":
         this.need(p, "commands");
         return invoke("plugin_run", { command: str(args[0], "command"), cwd: this.project() });
-      case "terminal.send":
+      case "terminal.send": {
         this.need(p, "terminal");
-        this.sendToTerminal(str(args[0], "text"));
+        const o = (args[1] ?? {}) as { tab?: string; submit?: boolean };
+        const s = this.tabsApi().session(o.tab);
+        s.paste(str(args[0], "text"));
+        // Submitting: Enter after the paste has landed (Claude Code reads a paste as one chunk).
+        if (o.submit) setTimeout(() => s.send("\r"), 80);
+        else s.focus();
         return;
+      }
+      case "terminal.read": {
+        this.need(p, "terminal:read");
+        const o = (args[0] ?? {}) as { tab?: string; lines?: number };
+        const n = Math.min(Math.max(Number(o.lines) || 50, 1), 5000);
+        return this.tabsApi().session(o.tab).text(n);
+      }
+      case "terminal.addLink": {
+        this.need(p, "terminal:read");
+        const o = (args[0] ?? {}) as { pattern?: string; flags?: string; onClick?: string };
+        const pattern = str(o.pattern, "pattern");
+        if (pattern.length > 300) throw new Error("pattern is too long");
+        const flags = String(o.flags ?? "").replace(/[^imsu]/g, "") + "g";
+        const re = new RegExp(pattern, flags);
+        if (o.onClick) linkRules.push({ owner: p.id, re, onClick: (text) => this.callback(p.id, o.onClick!, [text]) });
+        return;
+      }
+      case "tabs.list":
+        return this.tabsApi().list();
+      case "tabs.open": {
+        this.need(p, "tabs");
+        const o = (args[0] ?? {}) as { kind?: string; cwd?: string; run?: string; args?: unknown; label?: string };
+        const kind = o.kind === "shell" ? "shell" : "claude";
+        const cwd = o.cwd ? str(o.cwd, "cwd") : this.project();
+        const extra = Array.isArray(o.args) ? o.args.map(String).slice(0, 50) : undefined;
+        return this.tabsApi().open({
+          kind,
+          cwd,
+          run: kind === "shell" && o.run ? str(o.run, "run") : undefined,
+          args: kind === "claude" ? extra : undefined,
+          label: o.label ? String(o.label).slice(0, 40) : undefined,
+        });
+      }
       case "fetch": {
         const url = new URL(str(args[0], "url"));
         const host = url.hostname.toLowerCase();

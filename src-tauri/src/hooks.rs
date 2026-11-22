@@ -16,13 +16,36 @@ use tauri::{AppHandle, Emitter, Manager};
 
 pub const ENV_TAB: &str = "TERN_TAB";
 // SessionStart is not available as an HTTP hook; the session id arrives with the first prompt.
-const EVENTS: [&str; 3] = ["UserPromptSubmit", "Stop", "Notification"];
+// PostToolUse: what Claude just did (for plugins allowed to see it).
+const EVENTS: [&str; 4] = ["UserPromptSubmit", "Stop", "Notification", "PostToolUse"];
+
+/// Longest text kept from a hook's payload (tool inputs can carry whole files).
+const MAX_TEXT: usize = 4000;
 
 #[derive(Serialize, Clone)]
 struct HookMsg {
     tab: String,
     event: String,
     session_id: Option<String>,
+    /// The useful part of the payload: prompt, tool name and input, transcript path, message.
+    data: serde_json::Value,
+}
+
+/// Long strings cut short, recursively.
+fn trimmed(v: &serde_json::Value) -> serde_json::Value {
+    use serde_json::Value;
+    match v {
+        Value::String(s) if s.len() > MAX_TEXT => {
+            let mut end = MAX_TEXT;
+            while !s.is_char_boundary(end) {
+                end -= 1;
+            }
+            Value::String(format!("{}…", &s[..end]))
+        }
+        Value::Array(a) => Value::Array(a.iter().take(200).map(trimmed).collect()),
+        Value::Object(o) => Value::Object(o.iter().map(|(k, v)| (k.clone(), trimmed(v))).collect()),
+        other => other.clone(),
+    }
 }
 
 pub struct HookState {
@@ -86,10 +109,17 @@ fn handle_request(mut stream: TcpStream, secret: &str) -> Option<HookMsg> {
         return None;
     }
     let v: serde_json::Value = serde_json::from_slice(&body).ok()?;
+    let mut data = serde_json::Map::new();
+    for key in ["prompt", "tool_name", "tool_input", "transcript_path", "message", "cwd"] {
+        if let Some(x) = v.get(key) {
+            data.insert(key.to_string(), trimmed(x));
+        }
+    }
     Some(HookMsg {
         tab,
         event: v.get("hook_event_name")?.as_str()?.to_string(),
         session_id: v.get("session_id").and_then(|s| s.as_str()).map(String::from),
+        data: serde_json::Value::Object(data),
     })
 }
 

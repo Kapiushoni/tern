@@ -13,7 +13,7 @@ function send(obj) {
 }
 
 /** Tern permissions → what the plugin's Worker may do in Deno. */
-function denoPermissions(perms, dir, data) {
+function denoPermissions(perms, dir, data, claude) {
   const hosts = [];
   let net = false;
   for (const p of perms) {
@@ -22,7 +22,7 @@ function denoPermissions(perms, dir, data) {
   }
   return {
     // Its own folder (code, assets) to read; its own data folder to keep files in.
-    read: [dir, data],
+    read: [dir, data, ...(perms.includes("claude") && claude ? [claude] : [])],
     write: [data],
     net: net || (hosts.length ? hosts : false),
     run: perms.includes("commands"),
@@ -33,14 +33,14 @@ function denoPermissions(perms, dir, data) {
   };
 }
 
-function start({ id, file, dir, data, perms }) {
+function start({ id, file, dir, data, perms, claude }) {
   stop(id);
   let worker;
   try {
     worker = new Worker(new URL("./worker.js", import.meta.url), {
       type: "module",
       name: id,
-      deno: { permissions: denoPermissions(perms ?? [], dir, data) },
+      deno: { permissions: denoPermissions(perms ?? [], dir, data, claude) },
     });
   } catch (e) {
     send({ id, exit: String(e?.message ?? e) });
@@ -52,7 +52,7 @@ function start({ id, file, dir, data, perms }) {
     send({ id, exit: e.message ?? "crashed" });
     stop(id);
   };
-  worker.postMessage({ init: { file, dir, data } });
+  worker.postMessage({ init: { file, dir, data, claude: (perms ?? []).includes("claude") ? claude : null } });
   workers.set(id, worker);
 }
 

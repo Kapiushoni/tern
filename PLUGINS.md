@@ -61,7 +61,10 @@ messages and windows, and keep its own small storage. Everything else needs a pe
 | --- | --- |
 | `files` | `tern.files.*`: read, write and list files **inside the open project** |
 | `commands` | `tern.run(...)`: run shell commands in the project folder |
-| `terminal` | `tern.terminal.send(...)`: type text into the active terminal tab |
+| `terminal` | `tern.terminal.send(...)`: type into a terminal tab, or send a prompt to Claude |
+| `terminal:read` | `tern.terminal.read(...)` and `tern.terminal.addLink(...)`: see the terminal's text, make text in it clickable |
+| `tabs` | `tern.tabs.open(...)`: open terminal and Claude tabs (with your own command or Claude arguments) |
+| `claude` | prompts, tool calls and session ids in Claude events, the `claude:tool` event, and (background code) reading Claude Code's conversation logs |
 | `network:example.com` | `tern.fetch(...)` to that site (and its subdomains) |
 | `network` | `tern.fetch(...)` to any site |
 
@@ -85,10 +88,13 @@ tern.openWindow("panel.html", { title, width, height })  // a window from your f
 tern.closeWindow("panel.html")
 
 // Events
-tern.on("claude:done", (e) => {})           // e: { project, seen } — seen: you were looking at that tab
+tern.on("claude:done", (e) => {})           // e: { project, tab, seen } — seen: you were looking at that tab
 tern.on("claude:waiting", (e) => {})        // Claude asks for permission / your answer
 tern.on("claude:working", (e) => {})        // you sent a prompt
-tern.on("tab:open" | "tab:close" | "tab:switch", (e) => {})  // e: { kind: "claude" | "shell", project }
+tern.on("tab:open" | "tab:close" | "tab:switch", (e) => {})  // e: { kind: "claude" | "shell", project, tab }
+// With "claude", Claude events also carry { sessionId, transcript } (the log file), claude:working
+// has { prompt }, claude:waiting has { message }, and one more event comes after every tool Claude uses:
+tern.on("claude:tool", (e) => {})           // e: { project, tab, sessionId, tool: "Edit", input: { file_path, … } }
 tern.on("file:open" | "file:save", (e) => {})                 // e: { path, project }
 tern.on("project:change", (e) => {})        // e: { project }
 
@@ -105,6 +111,12 @@ await tern.files.write(".tern/notes.md", "text")
 await tern.files.list("src")                // names; folders end with "/"
 await tern.run("git log -1 --oneline")      // "commands": { code, stdout, stderr }
 await tern.terminal.send("explain this file") // "terminal": into the active tab (not sent)
+await tern.terminal.send("run the tests", { submit: true, tab })  // sent, to that tab (default: active)
+await tern.terminal.read({ lines: 50, tab })  // "terminal:read": the last lines as text
+tern.terminal.addLink({ pattern: "JIRA-\d+", onClick: (text) => {} })  // underlined, clickable
+await tern.tabs.list()                      // [{ id, kind, project, title, active, activity }]
+await tern.tabs.open({ kind: "claude", args: ["--model", "haiku"], label: "review" })  // "tabs": its id
+await tern.tabs.open({ kind: "shell", run: "npm test", cwd })
 await tern.fetch(url, { method: "POST", headers: {}, body: {} })  // "network:…": { status, ok, text, json }
 
 // Between your windows / main.js and your background code
@@ -166,6 +178,7 @@ your permissions:
 | `commands` | start programs (`Deno.Command`) |
 | `network:example.com` | `fetch` / WebSockets to exactly that host |
 | `network` | connect anywhere |
+| `claude` | read Claude Code's conversation logs (`tern.claudeDir`) |
 
 `files` is through `tern.files.*` (the open project). Environment variables, other folders and
 native libraries stay closed. When people turn the plugin on, Tern also tells them it runs in the

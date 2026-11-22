@@ -266,11 +266,10 @@ settingsWindow.pluginCount = () => ({
 
 // ── plugins ──────────────────────────────────────────────
 plugins.getProject = () => tree.root || null;
-plugins.sendToTerminal = (text) => {
-  const s = tabs.activeSession;
-  if (!s) throw new Error("no terminal tab is open");
-  s.paste(text);
-  s.focus();
+plugins.tabs = {
+  list: () => tabs.list(),
+  session: (id) => tabs.sessionOf(id),
+  open: (o) => tabs.open(o.kind, o.cwd, { run: o.run, args: o.args, label: o.label }),
 };
 // Voice input from inside a plugin window (Alt+Z, Esc).
 plugins.onHotkey = (e) => voice.handleKey(e);
@@ -279,7 +278,7 @@ plugins.onChange = () => {
   applyLook(store.value);
   pluginsWindow.refresh();
 };
-tabs.onEvent = (name, data) => plugins.emit(name, data);
+tabs.onEvent = (name, data, detail) => plugins.emit(name, data, detail);
 editor.onSaved = (path) => plugins.emit("file:save", { path, project: tree.root || null });
 tree.extraMenuItems = (path) => plugins.menuItems(path);
 
@@ -659,7 +658,7 @@ window.addEventListener(
       t.sessionId ? invoke<boolean>("claude_session_exists", { id: t.sessionId }).catch(() => false) : false,
     ),
   );
-  const opening: Promise<void>[] = [];
+  const opening: Promise<string>[] = [];
   restore.forEach((t, i) => {
     let resume: string | undefined;
     if (t.kind === "claude") resume = alive[i] ? t.sessionId : t.continue ? "continue" : undefined;

@@ -278,6 +278,10 @@ export const RU: Record<string, string> = {
   "Open settings.json": "Открыть settings.json",
   "Go to file… (> for commands)": "Перейти к файлу… (> — команды)",
   "Open a folder to find files — or type > for commands": "Откройте папку, чтобы искать файлы — или наберите > для команд",
+  "Type into the terminal and send prompts to Claude": "Печатать в терминал и отправлять промпты Claude",
+  "Read what the terminal shows, and make text in it clickable": "Читать то, что показывает терминал, и делать текст в нём кликабельным",
+  "Open terminal and Claude tabs": "Открывать вкладки терминала и Claude",
+  "See what Claude does: prompts, tools, changed files, conversation logs": "Видеть, что делает Claude: промпты, инструменты, изменённые файлы, логи разговоров",
 };
 
 export const UK: Record<string, string> = {
@@ -542,4 +546,8 @@ export const UK: Record<string, string> = {
   "Open settings.json": "Відкрити settings.json",
   "Go to file… (> for commands)": "Перейти до файлу… (> — команди)",
   "Open a folder to find files — or type > for commands": "Відкрийте папку, щоб шукати файли — або наберіть > для команд",
+  "Type into the terminal and send prompts to Claude": "Друкувати в термінал і надсилати промпти Claude",
+  "Read what the terminal shows, and make text in it clickable": "Читати те, що показує термінал, і робити текст у ньому клікабельним",
+  "Open terminal and Claude tabs": "Відкривати вкладки термінала і Claude",
+  "See what Claude does: prompts, tools, changed files, conversation logs": "Бачити, що робить Claude: промпти, інструменти, змінені файли, логи розмов",
 };

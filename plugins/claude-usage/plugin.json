@@ -1,0 +1,8 @@
+{
+  "name": "Claude usage",
+  "version": "1.0.0",
+  "description": "Tokens Claude used in this session and today, in the status bar. Counted from Claude Code's own conversation logs.",
+  "author": "Tern",
+  "backend": "backend.js",
+  "permissions": ["claude"]
+}

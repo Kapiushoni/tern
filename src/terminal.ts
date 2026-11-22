@@ -131,6 +131,7 @@ export class TermSession {
       invoke("pty_write_bytes", { id: this.id, data: bytes }).catch(() => {});
     });
     this.term.attachCustomKeyEventHandler((e) => this.onKey(e));
+    this.term.registerLinkProvider({ provideLinks: (y, done) => done(pluginLinks(this.term, y)) });
 
     this.observer = new ResizeObserver(() => {
       clearTimeout(this.resizeTimer);
@@ -165,7 +166,7 @@ export class TermSession {
   }
 
   /** `resume`: a Claude session id, "continue", or nothing for a fresh session. */
-  async start(kind: TermKind, cwd: string, tab: string, resume?: string): Promise<void> {
+  async start(kind: TermKind, cwd: string, tab: string, resume?: string, args?: string[]): Promise<void> {
     const onData = new Channel<ArrayBuffer>();
     const decoder = new TextDecoder();
     let seen = 0;
@@ -186,6 +187,7 @@ export class TermSession {
       kind,
       tab,
       resume: resume ?? null,
+      args: args ?? null,
       cols: this.term.cols,
       rows: this.term.rows,
       onData,
@@ -264,6 +266,16 @@ export class TermSession {
     else invoke("pty_write", { id: this.id, data });
   }
 
+  /** The last `lines` lines of the terminal (scrollback included), as plain text. */
+  text(lines: number) {
+    const buf = this.term.buffer.active;
+    const end = buf.length;
+    const out: string[] = [];
+    for (let y = Math.max(0, end - lines); y < end; y++) out.push(buf.getLine(y)?.translateToString(true) ?? "");
+    while (out.length && !out[out.length - 1].trim()) out.pop();
+    return out.join("\n");
+  }
+
   /** Pastes text as if from the clipboard (bracketed when the program asked for it). */
   paste(text: string) {
     this.term.paste(text);
@@ -279,4 +291,42 @@ export class TermSession {
     if (this.id !== null) invoke("pty_kill", { id: this.id });
     this.term.dispose();
   }
+}
+
+/**
+ * Text plugins turn into links in every terminal ("terminal:read" permission): a pattern and what
+ * to do on click.
+ */
+export interface LinkRule {
+  owner: string;
+  re: RegExp;
+  onClick: (text: string) => void;
+}
+export const linkRules: LinkRule[] = [];
+
+function pluginLinks(term: Terminal, y: number) {
+  if (!linkRules.length) return undefined;
+  const line = term.buffer.active.getLine(y - 1)?.translateToString(true);
+  if (!line || line.length > 2000) return undefined;
+  const links = [];
+  for (const rule of linkRules) {
+    rule.re.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    let guard = 0;
+    while ((m = rule.re.exec(line)) && guard++ < 50) {
+      if (!m[0]) {
+        rule.re.lastIndex++;
+        continue;
+      }
+      const text = m[0];
+      const x = m.index + 1;
+      links.push({
+        range: { start: { x, y }, end: { x: x + text.length - 1, y } },
+        text,
+        activate: () => rule.onClick(text),
+        decorations: { underline: true, pointerCursor: true },
+      });
+    }
+  }
+  return links.length ? links : undefined;
 }

@@ -70,11 +70,13 @@ function toFileUrl(path) {
   return new URL(`file://${p.startsWith("/") ? "" : "/"}${encodeURI(p).replace(/[?#]/g, encodeURIComponent)}`).href;
 }
 
-function makeTern({ dir, data }) {
+function makeTern({ dir, data, claude }) {
   return {
     /** The plugin's own folder, and a folder it may keep files in. */
     pluginDir: dir,
     dataDir: data,
+    /** Claude Code's conversation logs (readable with the "claude" permission), else null. */
+    claudeDir: claude ?? null,
     addButton: (o) => call("addButton", { icon: o.icon, title: o.title, onClick: cb(o.onClick) }),
     addMenuItem: (o) => call("addMenuItem", { label: o.label, onClick: cb(o.onClick) }),
     addCommand: (o) => call("addCommand", { name: o.name, key: o.key, run: cb(o.run) }),
@@ -102,7 +104,12 @@ function makeTern({ dir, data }) {
     },
     run: (command) => call("run", command),
     fetch: (url, opts) => call("fetch", url, opts ?? {}),
-    terminal: { send: (t) => call("terminal.send", String(t)) },
+    terminal: {
+      send: (t, o) => call("terminal.send", String(t), o ?? {}),
+      read: (o) => call("terminal.read", o ?? {}),
+      addLink: (o) => call("terminal.addLink", { pattern: String(o.pattern), flags: o.flags, onClick: cb(o.onClick) }),
+    },
+    tabs: { list: () => call("tabs.list"), open: (o) => call("tabs.open", o ?? {}) },
     /** To the plugin's windows and main.js (they get it in tern.onMessage). */
     send: (message) => call("send", message),
     onMessage: (fn) => {

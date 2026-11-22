@@ -94,6 +94,7 @@ pub fn pty_spawn(
     kind: String,
     tab: String,
     resume: Option<String>,
+    args: Option<Vec<String>>,
     cols: u16,
     rows: u16,
     on_data: Channel<InvokeResponseBody>,
@@ -121,6 +122,9 @@ pub fn pty_spawn(
             cmd.arg("--settings");
             cmd.arg(file);
             cmd.env(hooks::ENV_TAB, &tab);
+        }
+        if let Some(extra) = &args {
+            cmd.args(extra);
         }
         match resume.as_deref() {
             None | Some("") => {}

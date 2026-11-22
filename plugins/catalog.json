@@ -1,12 +1,27 @@
 {
   "plugins": [
     {
+      "id": "claude-usage",
+      "name": "Claude usage",
+      "version": "1.0.0",
+      "author": "Tern",
+      "description": "Tokens Claude used in this session and today, in the status bar.",
+      "permissions": [
+        "claude"
+      ],
+      "backend": true,
+      "url": "https://github.com/Kapiushoni/tern/archive/refs/heads/main.zip",
+      "path": "plugins/claude-usage"
+    },
+    {
       "id": "telegram-notify",
       "name": "Telegram notify",
       "version": "1.0.0",
       "author": "Tern",
       "description": "A Telegram message when Claude finishes a task or waits for your answer while you are away.",
-      "permissions": ["network:api.telegram.org"],
+      "permissions": [
+        "network:api.telegram.org"
+      ],
       "url": "https://github.com/Kapiushoni/tern/archive/refs/heads/main.zip",
       "path": "plugins/telegram-notify"
     },
@@ -16,7 +31,9 @@
       "version": "1.0.0",
       "author": "Tern",
       "description": "A to-do list for each project, in a small window. Kept in .tern/todo.json inside the project.",
-      "permissions": ["files"],
+      "permissions": [
+        "files"
+      ],
       "url": "https://github.com/Kapiushoni/tern/archive/refs/heads/main.zip",
       "path": "plugins/todo"
     },
