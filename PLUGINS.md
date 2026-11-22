@@ -47,6 +47,7 @@ Only `name` is required. The folder name is the plugin's id (letters, digits, `-
   [Background code](#background-code-deno)).
 - `style` — a CSS file added to Tern's page: restyle anything.
 - `theme` — colours, no code at all (see [Themes](#themes)).
+- `languages` — language servers for the editor, no code at all (see [Languages](#languages)).
 - `permissions` — what the plugin may do beyond the basics (see below). Tern shows the list when
   the plugin is installed or turned on.
 - `settings` — fields Tern shows in the plugin's settings. Types: `text`, `password`, `number`,
@@ -194,6 +195,35 @@ deno bundle --output backend.js src/backend.ts
 **Logs.** `console.log` from background code goes to Tern's developer console
 (`[plugin your-id] …`). An uncaught error stops the background code and shows a message; turn the
 plugin off and on (or **Reload plugins**) to start it again.
+
+## Languages
+
+A language plugin is just `plugin.json`: which files, and which
+[language server](https://microsoft.github.io/language-server-protocol/) to run for them. Tern
+then gives those files completion, errors and warnings, hover docs, signature help, go to
+definition (F12), find references (Shift+F12), rename (F2) and formatting (Shift+Alt+F).
+
+```json
+{
+  "name": "Python (pyright)",
+  "languages": [{
+    "name": "Python",
+    "extensions": ["py", "pyi"],
+    "languageId": "python",
+    "server": { "npm": "pyright@1.1.414", "bin": "pyright-langserver", "args": ["--stdio"] }
+  }]
+}
+```
+
+- `server.npm` — an npm package (pin the version) and its executable `bin`. Tern downloads it
+  the first time a matching file is opened and runs it in its bundled Deno: nobody needs Node.
+- `server.command` — or a program people install themselves (`"rust-analyzer"`, `"clangd"`);
+  if it isn't found, Tern says what to install.
+- `initializationOptions` — passed to the server as is.
+
+One server runs per language and project, from the first matching file until Tern closes. When
+people turn the plugin on, Tern tells them which server it will download and run. In the catalog
+entry, list it as `"servers": ["pyright@1.1.414"]`. See [`plugins/python`](plugins/python).
 
 ## Themes
 

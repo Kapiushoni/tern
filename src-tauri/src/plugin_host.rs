@@ -37,7 +37,7 @@ struct FromPlugin {
 }
 
 /// Deno next to Tern's executable (bundled), else one on PATH.
-fn deno_path() -> Option<PathBuf> {
+pub fn deno_path() -> Option<PathBuf> {
     let name = if cfg!(windows) { "deno.exe" } else { "deno" };
     if let Some(dir) = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())) {
         let p = dir.join(name);

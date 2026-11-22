@@ -4,6 +4,7 @@ mod fonts;
 mod fs;
 mod git;
 mod hooks;
+mod lsp;
 mod preview;
 mod plugin_host;
 mod plugins;
@@ -28,6 +29,7 @@ pub fn run() {
         .manage(search::SearchState::default())
         .manage(preview::PreviewState::default())
         .manage(plugin_host::PluginHostState::default())
+        .manage(lsp::LspState::default())
         .setup(|app| {
             pty::allow_ctrl_c();
             voice::init();
@@ -86,6 +88,9 @@ pub fn run() {
             plugin_host::plugin_backend_start,
             plugin_host::plugin_backend_stop,
             plugin_host::plugin_backend_send,
+            lsp::lsp_start,
+            lsp::lsp_send,
+            lsp::lsp_stop,
             tools::ide_list,
             tools::ide_open,
             tools::run_detect,

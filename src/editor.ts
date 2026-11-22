@@ -47,6 +47,8 @@ export class Editor {
   onChange: () => void = () => {};
   /** Saved by the user (for plugins). */
   onSaved: (path: string) => void = () => {};
+  /** Extra editor features for a file (a language server's). */
+  extensionFor: (path: string) => Promise<import("@codemirror/state").Extension> = async () => [];
   /** The folder an HTML preview is served from (its project), for root-relative links. */
   previewRoot: (path: string) => string = (p) => p.replace(/[\\/][^\\/]*$/, "");
   /** The folder the HTML preview serves, while one is shown. */
@@ -145,14 +147,14 @@ export class Editor {
 
   private async showCode(text: string) {
     const path = this.path!;
-    const { createEditor } = await import("./cm");
+    const [{ createEditor }, extra] = await Promise.all([import("./cm"), this.extensionFor(path).catch(() => [])]);
     if (this.path !== path) return;
     this.code?.destroy();
     this.body.replaceChildren();
     this.code = await createEditor(this.body, path, text, {
       save: () => this.save(),
       change: () => this.setDirty(this.code!.text() !== this.savedText),
-    });
+    }, extra);
     this.mode = "code";
     tx(this.modeBtn, "preview");
   }
@@ -331,6 +333,11 @@ export class Editor {
     ]);
     if (c === "save") return this.save();
     return c === "discard";
+  }
+
+  /** The code view of the open file, if it shows code. */
+  get view() {
+    return this.code?.view ?? null;
   }
 
   async close() {

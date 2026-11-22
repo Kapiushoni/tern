@@ -282,6 +282,11 @@ export const RU: Record<string, string> = {
   "Read what the terminal shows, and make text in it clickable": "Читать то, что показывает терминал, и делать текст в нём кликабельным",
   "Open terminal and Claude tabs": "Открывать вкладки терминала и Claude",
   "See what Claude does: prompts, tools, changed files, conversation logs": "Видеть, что делает Claude: промпты, инструменты, изменённые файлы, логи разговоров",
+  "Download and run the language server {name}": "Скачать и запускать языковой сервер {name}",
+  "{name}: install {program} to get completion and errors": "{name}: установите {program}, чтобы были подсказки и ошибки",
+  "{name}: the language server didn't start: {error}": "{name}: языковой сервер не запустился: {error}",
+  "{name}: starting {server} (the first time it is downloaded)…": "{name}: запускаю {server} (в первый раз он скачивается)…",
+  "A language server stopped; it restarts when you open a file again": "Языковой сервер остановился; он запустится снова, когда вы откроете файл",
 };
 
 export const UK: Record<string, string> = {
@@ -550,4 +555,9 @@ export const UK: Record<string, string> = {
   "Read what the terminal shows, and make text in it clickable": "Читати те, що показує термінал, і робити текст у ньому клікабельним",
   "Open terminal and Claude tabs": "Відкривати вкладки термінала і Claude",
   "See what Claude does: prompts, tools, changed files, conversation logs": "Бачити, що робить Claude: промпти, інструменти, змінені файли, логи розмов",
+  "Download and run the language server {name}": "Завантажити й запускати мовний сервер {name}",
+  "{name}: install {program} to get completion and errors": "{name}: встановіть {program}, щоб були підказки та помилки",
+  "{name}: the language server didn't start: {error}": "{name}: мовний сервер не запустився: {error}",
+  "{name}: starting {server} (the first time it is downloaded)…": "{name}: запускаю {server} (першого разу він завантажується)…",
+  "A language server stopped; it restarts when you open a file again": "Мовний сервер зупинився; він запуститься знову, коли ви відкриєте файл",
 };

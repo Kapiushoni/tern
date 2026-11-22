@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { t, translateTree } from "./i18n";
 import { toast } from "./toast";
-import { describePermission, Plugin, PluginHost } from "./plugins";
+import { describePermission, implied, Plugin, PluginHost } from "./plugins";
 
 /**
  * The plugins window: installed plugins (on / off, settings, remove) and the catalog, where a
@@ -17,6 +17,8 @@ interface CatalogEntry {
   permissions?: string[];
   /** It has background code (Deno). */
   backend?: boolean;
+  /** Language servers it runs ("pyright@1.1.414"). */
+  servers?: string[];
   /** A zip to download (a GitHub archive) and the plugin's folder inside it. */
   url: string;
   path?: string;
@@ -149,7 +151,7 @@ export class PluginsWindow {
       box.checked = this.host.canRun(p);
       box.addEventListener("change", async () => {
         if (box.checked) {
-          const perms = [...(p.manifest!.backend ? ["background"] : []), ...(p.manifest!.permissions ?? [])];
+          const perms = [...implied(p.manifest!), ...(p.manifest!.permissions ?? [])];
           if (perms.length && !(await this.confirm(p.manifest!.name, perms))) {
             box.checked = false;
             return;
@@ -267,7 +269,7 @@ export class PluginsWindow {
   }
 
   private async install(e: CatalogEntry, b: HTMLButtonElement) {
-    const perms = [...(e.backend ? ["background"] : []), ...(e.permissions ?? [])];
+    const perms = [...implied(e), ...(e.permissions ?? [])];
     if (perms.length && !(await this.confirm(e.name, perms))) return;
     b.disabled = true;
     b.textContent = t("installing…");

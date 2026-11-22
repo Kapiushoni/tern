@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { toast } from "./toast";
 import { t } from "./i18n";
 import { linkRules } from "./terminal";
+import { LanguageSpec, parseLanguages, serverName } from "./lsp";
 
 /**
  * Plugins. A plugin is a folder with plugin.json and, optionally, main.js, style.css and HTML
@@ -44,6 +45,8 @@ export interface Manifest {
   /** "files", "commands", "terminal", "terminal:read", "tabs", "claude", "network" or "network:host.com". */
   permissions?: string[];
   settings?: SettingSpec[];
+  /** Language servers for the editor (completion, errors, go to definition…). */
+  languages?: LanguageSpec[];
 }
 
 interface Data {
@@ -76,9 +79,17 @@ interface Running {
   status: Map<string, HTMLElement>;
 }
 
+/** What turning a plugin on allows, beyond its permissions: background code, language servers. */
+export function implied(m: { backend?: unknown; languages?: LanguageSpec[]; servers?: string[] }): string[] {
+  const out = m.backend ? ["background"] : [];
+  for (const name of m.servers ?? (m.languages ?? []).map(serverName)) out.push(`server:${name}`);
+  return out;
+}
+
 /** What a permission means, for the install dialog. */
 export function describePermission(p: string): string {
   if (p === "background") return t("Run in the background while Tern is open");
+  if (p.startsWith("server:")) return t("Download and run the language server {name}", { name: p.slice(7) });
   if (p === "files") return t("Read and change files in the open project");
   if (p === "commands") return t("Run commands on this computer");
   if (p === "terminal") return t("Type into the terminal and send prompts to Claude");
@@ -103,6 +114,7 @@ export function parseManifest(text: string | null): { manifest: Manifest | null;
   if (!m || typeof m.name !== "string" || !m.name.trim()) return { manifest: null, error: 'plugin.json needs a "name"' };
   m.permissions = (Array.isArray(m.permissions) ? m.permissions : []).filter((p) => typeof p === "string" && KNOWN.test(p));
   m.settings = Array.isArray(m.settings) ? m.settings.filter((s) => s && typeof s.key === "string") : [];
+  m.languages = parseLanguages(m.languages);
   return { manifest: m };
 }
 
@@ -219,6 +231,8 @@ const cssVar = (name: string) => getComputedStyle(document.documentElement).getP
 
 export class PluginHost {
   plugins: Plugin[] = [];
+  /** A plugin stopped (turned off, removed, reloaded): its language servers go too. */
+  onStopped: (id: string) => void = () => {};
   /** Plugins were loaded, enabled or disabled: themes may have changed. */
   onChange: () => void = () => {};
   /** The open project folder. */
@@ -356,6 +370,7 @@ export class PluginHost {
     const p = this.plugins.find((x) => x.id === id);
     if (p) p.running = false;
     this.layoutStatus();
+    this.onStopped(id);
   }
 
   /** The status bar setting (settings.json "statusBar"). */
@@ -398,6 +413,15 @@ export class PluginHost {
     const out: { label: string; run: () => void }[] = [];
     for (const [id, r] of this.running) {
       for (const m of r.menu) out.push({ label: m.label, run: () => this.callback(id, m.cb, [path]) });
+    }
+    return out;
+  }
+
+  /** Language servers of the running plugins. */
+  languages(): { plugin: string; lang: LanguageSpec }[] {
+    const out: { plugin: string; lang: LanguageSpec }[] = [];
+    for (const p of this.plugins) {
+      if (p.running) for (const lang of p.manifest?.languages ?? []) out.push({ plugin: p.id, lang });
     }
     return out;
   }

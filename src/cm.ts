@@ -113,6 +113,19 @@ const theme = EditorView.theme({
   ".cm-searchMatch.cm-searchMatch-selected": { backgroundColor: "var(--accent-soft)" },
   ".cm-panels": { backgroundColor: "var(--panel)", color: "var(--fg)" },
   ".cm-panels.cm-panels-top": { borderBottom: "1px solid var(--line)" },
+  // Completion, hover docs and errors from language servers.
+  ".cm-tooltip": { backgroundColor: "var(--panel)", color: "var(--fg)", border: "1px solid var(--line)", borderRadius: "4px" },
+  ".cm-tooltip-autocomplete > ul": { fontFamily: "var(--mono)", maxHeight: "16em" },
+  ".cm-tooltip-autocomplete > ul > li[aria-selected]": { backgroundColor: "var(--accent-soft)", color: "var(--fg)" },
+  ".cm-completionDetail": { color: "var(--dim)", fontStyle: "normal", marginLeft: "1em" },
+  ".cm-completionMatchedText": { color: "var(--accent)", textDecoration: "none" },
+  ".cm-tooltip.cm-completionInfo, .cm-lsp-documentation": { maxWidth: "36em" },
+  ".cm-lsp-documentation pre, .cm-lsp-documentation code": { fontFamily: "var(--mono)", fontSize: "12px" },
+  ".cm-diagnostic": { padding: "3px 8px", borderLeft: "3px solid var(--line)" },
+  ".cm-diagnostic-error": { borderLeftColor: "var(--syn-error)" },
+  ".cm-diagnostic-warning": { borderLeftColor: "var(--syn-number)" },
+  ".cm-lintRange-error": { backgroundImage: "none", textDecoration: "underline wavy var(--syn-error)", textUnderlineOffset: "3px" },
+  ".cm-lintRange-warning": { backgroundImage: "none", textDecoration: "underline wavy var(--syn-number)", textUnderlineOffset: "3px" },
 });
 
 export interface CodeEditor {
@@ -134,6 +147,8 @@ export async function createEditor(
   path: string,
   text: string,
   on: { save: () => void; change: () => void },
+  /** More extensions (a language server's, for one). */
+  extra: Extension = [],
 ): Promise<CodeEditor> {
   const crlf = text.includes("\r\n");
   const readOnly = new Compartment();
@@ -166,6 +181,7 @@ export async function createEditor(
         if (u.docChanged) on.change();
       }),
       await languageFor(path),
+      extra,
     ],
   });
   const view = new EditorView({ state, parent });

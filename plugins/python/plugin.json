@@ -1,0 +1,14 @@
+{
+  "name": "Python (pyright)",
+  "version": "1.0.0",
+  "description": "Completion, errors, hover docs, go to definition and rename for Python files. Tern downloads pyright the first time a .py file is opened.",
+  "author": "Tern",
+  "languages": [
+    {
+      "name": "Python",
+      "extensions": ["py", "pyi"],
+      "languageId": "python",
+      "server": { "npm": "pyright@1.1.414", "bin": "pyright-langserver", "args": ["--stdio"] }
+    }
+  ]
+}

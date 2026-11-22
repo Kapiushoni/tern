@@ -23,6 +23,7 @@ import { repaintIcons } from "./fileicons";
 import { PluginHost } from "./plugins";
 import { PluginsWindow } from "./pluginsui";
 import type { PaletteCommand } from "./quickopen";
+import { LanguageServers } from "./lsp";
 
 const app = document.getElementById("app")!;
 const root = document.documentElement;
@@ -274,6 +275,14 @@ plugins.tabs = {
 // Voice input from inside a plugin window (Alt+Z, Esc).
 plugins.onHotkey = (e) => voice.handleKey(e);
 plugins.statusBar = document.getElementById("statusbar");
+const languages = new LanguageServers();
+languages.getLanguages = () => plugins.languages();
+languages.openFile = async (path) => {
+  await editor.open(path);
+  return editor.path?.toLowerCase() === path.toLowerCase() ? editor.view : null;
+};
+editor.extensionFor = (path) => languages.extensionFor(path, tree.root || null);
+plugins.onStopped = (id) => languages.stopPlugin(id);
 plugins.onChange = () => {
   applyLook(store.value);
   pluginsWindow.refresh();
