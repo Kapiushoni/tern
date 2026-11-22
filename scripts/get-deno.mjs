@@ -5,7 +5,7 @@
 // Needs `unzip` (Git Bash, macOS, Linux) or PowerShell on Windows.
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync, chmodSync } from "node:fs";
+import { existsSync, mkdirSync, copyFileSync, rmSync, writeFileSync, chmodSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
@@ -43,7 +43,8 @@ if (process.platform === "win32") {
   execFileSync("unzip", ["-o", "-q", zip, "-d", tmp]);
 }
 mkdirSync(dirname(out), { recursive: true });
-renameSync(join(tmp, `deno${exe}`), out);
+// Copied, not renamed: the temp folder may be on another drive (C: vs D: on CI).
+copyFileSync(join(tmp, `deno${exe}`), out);
 if (!exe) chmodSync(out, 0o755);
 rmSync(tmp, { recursive: true, force: true });
 console.log(`saved ${out}`);
