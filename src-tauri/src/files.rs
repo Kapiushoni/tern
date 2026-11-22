@@ -7,7 +7,8 @@ use std::time::UNIX_EPOCH;
 use serde::Serialize;
 
 /// Bigger files are not opened in the editor: it would be slow and is rarely useful.
-const MAX_EDIT_SIZE: u64 = 5 * 1024 * 1024;
+/// CodeMirror only renders what is on screen, so logs of tens of MB are still fine.
+const MAX_EDIT_SIZE: u64 = 50 * 1024 * 1024;
 
 fn mtime(path: &Path) -> u64 {
     std::fs::metadata(path)

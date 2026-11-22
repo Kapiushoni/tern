@@ -579,6 +579,9 @@ body.dragging, body.dragging * { cursor: copy !important; }
   object-fit: contain;
   box-shadow: 0 0 0 1px var(--line);
 }
+video.ed-image { background: #000; }
+audio.ed-image { width: calc(100% - 32px); height: 40px; box-shadow: none; }
+.pdf-preview { width: 100%; height: 100%; border: 0; display: block; }
 .ed-message { padding: 24px; color: var(--dim); }
 
 .md-preview {
@@ -858,8 +861,9 @@ body.resizing-y, body.resizing-y * { cursor: row-resize !important; }
 .html-preview { width: 100%; height: 100%; border: 0; background: #fff; display: block; }
 
 /* ── effects ──────────────────────────── */
-/* Neon glow on the terminal cursor. */
-:root.fx-glow #terminal-host .xterm-cursor { box-shadow: 0 0 6px var(--accent); }
+/* Neon glow on the terminal cursor. A filter, not box-shadow: xterm draws the bar cursor
+   itself with an inset box-shadow, and replacing it made a glow on both edges of the cell. */
+:root.fx-glow #terminal-host .xterm-cursor { filter: drop-shadow(0 0 3px var(--accent)); }
 
 /* CRT: faint scanlines and darkened edges over the terminal. Static, never repainted. */
 :root.fx-crt #terminal-host::before {

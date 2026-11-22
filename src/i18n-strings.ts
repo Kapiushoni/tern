@@ -15,7 +15,8 @@ export const RU: Record<string, string> = {
 
   // editor
   "Can't show this image.": "Не удаётся показать картинку.",
-  "This file is too big to open here (over 5 MB).": "Файл слишком большой (больше 5 МБ).",
+  "Can't play this file (format not supported).": "Не удаётся воспроизвести файл (формат не поддерживается).",
+  "This file is too big to open here (over 50 MB).": "Файл слишком большой (больше 50 МБ).",
   "This is not a text file.": "Это не текстовый файл.",
   "Can't open the file: {error}": "Не удаётся открыть файл: {error}",
   "Can't preview this page: {error}": "Не удаётся показать страницу: {error}",
@@ -309,7 +310,8 @@ export const UK: Record<string, string> = {
   "Attach files (Ctrl+Shift+A) — or paste / drop them": "Прикріпити файли (Ctrl+Shift+A) — або вставте / перетягніть їх",
 
   "Can't show this image.": "Не вдається показати зображення.",
-  "This file is too big to open here (over 5 MB).": "Файл завеликий (понад 5 МБ).",
+  "Can't play this file (format not supported).": "Не вдається відтворити файл (формат не підтримується).",
+  "This file is too big to open here (over 50 MB).": "Файл завеликий (понад 50 МБ).",
   "This is not a text file.": "Це не текстовий файл.",
   "Can't open the file: {error}": "Не вдається відкрити файл: {error}",
   "Can't preview this page: {error}": "Не вдається показати сторінку: {error}",

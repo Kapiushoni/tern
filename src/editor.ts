@@ -6,6 +6,16 @@ import { t, tx } from "./i18n";
 const baseName = (p: string) => p.split(/[\\/]/).pop() || p;
 const isMarkdown = (p: string) => /\.(md|markdown)$/i.test(p);
 const isHtml = (p: string) => /\.html?$/i.test(p);
+const VIDEO_EXT = /\.(mp4|m4v|webm|mov|ogv)$/i;
+const AUDIO_EXT = /\.(mp3|wav|ogg|oga|m4a|aac|flac|opus)$/i;
+/** Files shown by the webview itself rather than read as text. */
+function mediaKind(p: string): "image" | "video" | "audio" | "pdf" | null {
+  if (isImage(p)) return "image";
+  if (VIDEO_EXT.test(p)) return "video";
+  if (AUDIO_EXT.test(p)) return "audio";
+  if (/\.pdf$/i.test(p)) return "pdf";
+  return null;
+}
 /** Files with a second, rendered view. */
 const hasPreview = (p: string) => isMarkdown(p) || isHtml(p);
 
@@ -103,13 +113,30 @@ export class Editor {
     this.head.title = path;
     this.modeBtn.hidden = !hasPreview(path);
 
-    if (isImage(path)) {
+    const media = mediaKind(path);
+    if (media) {
+      // Streamed by the asset protocol (with range requests), so size does not matter.
       this.mode = "image";
-      const img = document.createElement("img");
-      img.src = convertFileSrc(path) + `?t=${Date.now()}`;
-      img.className = "ed-image";
-      img.onerror = () => this.message(t("Can't show this image."));
-      this.body.replaceChildren(img);
+      const src = convertFileSrc(path) + `?t=${Date.now()}`;
+      let el: HTMLElement;
+      if (media === "pdf") {
+        const f = document.createElement("iframe");
+        f.className = "pdf-preview";
+        f.src = src;
+        el = f;
+      } else {
+        const m = document.createElement(media === "image" ? "img" : media);
+        m.className = "ed-image";
+        m.setAttribute("src", src);
+        if (media !== "image") {
+          (m as HTMLMediaElement).controls = true;
+          (m as HTMLMediaElement).preload = "metadata";
+        }
+        m.onerror = () =>
+          this.message(media === "image" ? t("Can't show this image.") : t("Can't play this file (format not supported)."));
+        el = m;
+      }
+      this.body.replaceChildren(el);
     } else {
       const preview = !opts.at && (opts.preview || isMarkdown(path));
       await this.load(preview ? "preview" : "code", opts.focus !== false);
@@ -127,7 +154,7 @@ export class Editor {
     } catch (err) {
       const e = String(err);
       this.message(
-        e === "too-large" ? t("This file is too big to open here (over 5 MB).")
+        e === "too-large" ? t("This file is too big to open here (over 50 MB).")
           : e === "binary" ? t("This is not a text file.")
           : t("Can't open the file: {error}", { error: e }),
       );
@@ -281,6 +308,7 @@ export class Editor {
     }
     if (!this.path || !paths.some((p) => samePath(p, this.path!))) return;
     if (this.mode === "image") {
+      // Only images reload: restarting a video or PDF on every write would be annoying.
       const img = this.body.querySelector<HTMLImageElement>("img");
       if (img) img.src = convertFileSrc(this.path) + `?t=${Date.now()}`;
       return;
