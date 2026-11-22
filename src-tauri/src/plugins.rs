@@ -164,15 +164,18 @@ pub async fn plugin_install(app: AppHandle, id: String, url: String, subdir: Opt
         let tmp = dir.join(format!(".{id}.installing"));
         let _ = std::fs::remove_dir_all(&tmp);
         let mut found = false;
+        // GitHub archives wrap everything in "<repo>-<branch>/"; a plain zip may have plugin.json at the top.
+        let wrapped = !(0..zip.len()).any(|i| zip.by_index(i).ok().and_then(|e| e.enclosed_name()).is_some_and(|n| n == Path::new("plugin.json")));
         for i in 0..zip.len() {
             let mut entry = zip.by_index(i).map_err(|e| e.to_string())?;
             let Some(name) = entry.enclosed_name() else { continue };
             // GitHub archives wrap everything in "<repo>-<branch>/".
             let parts: Vec<String> = name.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
-            if parts.len() < 2 {
+            let skip = usize::from(wrapped);
+            if parts.len() <= skip {
                 continue;
             }
-            let inner = parts[1..].join("/");
+            let inner = parts[skip..].join("/");
             let rel = if want.is_empty() {
                 inner
             } else if let Some(rest) = inner.strip_prefix(&format!("{want}/")) {
@@ -205,6 +208,56 @@ pub async fn plugin_install(app: AppHandle, id: String, url: String, subdir: Opt
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// Installs a plugin from a folder on this computer (copied, so the original can move on).
+/// Returns its id: the folder's name, made safe.
+#[tauri::command]
+pub fn plugin_install_dir(app: AppHandle, from: String) -> Result<String, String> {
+    let src = PathBuf::from(&from);
+    if !src.join("plugin.json").is_file() {
+        return Err("no plugin.json in that folder".into());
+    }
+    let name = src.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
+    let id: String = name
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .collect::<String>()
+        .trim_matches('-')
+        .chars()
+        .take(64)
+        .collect();
+    valid_id(&id)?;
+    let dir = plugins_dir(&app)?;
+    if dir.starts_with(&src) || src.starts_with(dir.join(&id)) {
+        return Err("into-itself".into());
+    }
+    let tmp = dir.join(format!(".{id}.installing"));
+    let _ = std::fs::remove_dir_all(&tmp);
+    copy_plugin(&src, &tmp).map_err(|e| e.to_string())?;
+    let target = dir.join(&id);
+    let _ = std::fs::remove_dir_all(&target);
+    std::fs::rename(&tmp, &target).map_err(|e| e.to_string())?;
+    Ok(id)
+}
+
+/// A plugin folder without what never belongs in it (git data, installed packages).
+fn copy_plugin(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(to)?;
+    for e in std::fs::read_dir(from)? {
+        let e = e?;
+        let name = e.file_name();
+        if [".git", "node_modules"].iter().any(|n| name == *n) {
+            continue;
+        }
+        let (src, dst) = (e.path(), to.join(&name));
+        if e.file_type()?.is_dir() {
+            copy_plugin(&src, &dst)?;
+        } else {
+            std::fs::copy(&src, &dst)?;
+        }
+    }
+    Ok(())
 }
 
 /// Resolves a plugin's path inside the project folder; anything outside it is refused.

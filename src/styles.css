@@ -1253,8 +1253,9 @@ body[data-win-resize="nw"] *, body[data-win-resize="se"] * { cursor: nwse-resize
 .pl-field input:focus, .pl-field select:focus { border-color: var(--accent); }
 .pl-field input[type="checkbox"] { justify-self: start; accent-color: var(--accent); }
 .pl-hint { grid-column: 2; color: var(--faint); font-size: 11px; line-height: 1.4; }
-.pl-foot { display: flex; align-items: center; gap: 8px; padding: 10px 18px; border-top: 1px solid var(--line); }
-.pl-note { flex: 1; color: var(--faint); font-size: 12px; }
+.pl-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 18px; border-top: 1px solid var(--line); }
+/* The hint on its own line; the buttons below it, wrapping if the window is narrow. */
+.pl-note { flex-basis: 100%; color: var(--faint); font-size: 12px; }
 
 .pl-dialog { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(0, 0, 0, 0.4); z-index: 2; }
 .pl-dialog-box {
@@ -1270,6 +1271,14 @@ body[data-win-resize="nw"] *, body[data-win-resize="se"] * { cursor: nwse-resize
 .pl-dialog-box ul { margin: 0 0 10px; padding-left: 18px; color: var(--fg2); line-height: 1.6; }
 .pl-dialog-box .pl-hint { display: block; margin-bottom: 12px; }
 .pl-dialog-buttons { display: flex; gap: 8px; }
+.pl-dialog-box .pl-outside { margin-bottom: 8px; }
+.pl-input {
+  display: block; width: 100%; box-sizing: border-box; min-width: 360px;
+  margin-bottom: 12px; padding: 6px 9px;
+  border: 1px solid var(--line); border-radius: 4px;
+  background: var(--bg); color: var(--fg); font: inherit; outline: none;
+}
+.pl-input:focus { border-color: var(--accent); }
 
 /* A plugin's own window, floating over the terminal area. */
 .plugin-window {

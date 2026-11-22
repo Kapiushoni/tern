@@ -27,6 +27,19 @@
       "path": "plugins/python"
     },
     {
+      "id": "git",
+      "name": "Git panel",
+      "version": "1.0.0",
+      "author": "Tern",
+      "description": "Branch and changes in the status bar; changed files, diffs, commit and history in a window; file history from the tree.",
+      "permissions": [
+        "commands"
+      ],
+      "backend": true,
+      "url": "https://github.com/Kapiushoni/tern/archive/refs/heads/main.zip",
+      "path": "plugins/git"
+    },
+    {
       "id": "telegram-notify",
       "name": "Telegram notify",
       "version": "1.0.0",

@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { open as pickFolder } from "@tauri-apps/plugin-dialog";
 import { t, translateTree } from "./i18n";
 import { toast } from "./toast";
 import { describePermission, implied, Plugin, PluginHost } from "./plugins";
@@ -103,7 +104,11 @@ export class PluginsWindow {
       this.render();
       toast(t("Plugins reloaded"));
     });
-    foot.append(span("pl-note", "How to write one: PLUGINS.md in Tern's repository."), folder, reload);
+    const fromLink = button("Install from link…", "pl-btn");
+    fromLink.addEventListener("click", () => this.installFromLink());
+    const fromFolder = button("Install from folder…", "pl-btn");
+    fromFolder.addEventListener("click", () => this.installFromFolder());
+    foot.append(span("pl-note", "How to write one: PLUGINS.md in Tern's repository."), fromLink, fromFolder, folder, reload);
     panel.append(foot);
 
     translateTree(panel);
@@ -285,8 +290,113 @@ export class PluginsWindow {
     this.render();
   }
 
+  /** A GitHub link (repository, or a folder in it via /tree/branch/path) or a .zip address. */
+  private async installFromLink() {
+    const url = await this.ask(t("Plugin link"), "https://github.com/someone/tern-plugin");
+    if (!url) return;
+    const src = parseLink(url.trim());
+    if (!src) {
+      toast(t("That isn't a GitHub link or a .zip address"), 4000);
+      return;
+    }
+    if (this.host.plugins.some((p) => p.id === src.id) && !(await this.yesNo(t("{name} is already installed. Replace it?", { name: src.id })))) return;
+    toast(t("Downloading {name}…", { name: src.id }));
+    try {
+      await invoke("plugin_install", { id: src.id, url: src.zip, subdir: src.subdir });
+    } catch (err) {
+      toast(t("Could not install {name}: {error}", { name: src.id, error: String(err) }), 5000);
+      return;
+    }
+    await this.finishOutside(src.id);
+  }
+
+  private async installFromFolder() {
+    const dir = await pickFolder({ directory: true, title: t("The plugin's folder (with plugin.json)") });
+    if (typeof dir !== "string") return;
+    let id: string;
+    try {
+      id = await invoke<string>("plugin_install_dir", { from: dir });
+    } catch (err) {
+      toast(t("Could not install {name}: {error}", { name: dir, error: String(err) }), 5000);
+      return;
+    }
+    await this.finishOutside(id);
+  }
+
+  /** Installed from outside the catalog: show what it wants, with a warning; no = removed again. */
+  private async finishOutside(id: string) {
+    await this.host.load();
+    const p = this.host.plugins.find((x) => x.id === id);
+    if (!p?.manifest) {
+      toast(t("Could not install {name}: {error}", { name: id, error: p?.error ?? "plugin.json" }), 5000);
+      this.render();
+      return;
+    }
+    const perms = [...implied(p.manifest), ...(p.manifest.permissions ?? [])];
+    if (await this.confirm(p.manifest.name, perms, true)) {
+      await this.host.setEnabled(p, true);
+      toast(t("{name} is installed", { name: p.manifest.name }));
+    } else {
+      await this.host.remove(p).catch(() => {});
+    }
+    this.tab = "installed";
+    this.render();
+  }
+
+  /** A one-line question in the plugins window. */
+  private ask(title: string, placeholder: string): Promise<string | null> {
+    return new Promise((resolve) => {
+      const d = div("pl-dialog");
+      const box = div("pl-dialog-box");
+      const head = div("pl-dialog-title");
+      head.textContent = title;
+      const input = document.createElement("input");
+      input.className = "pl-input";
+      input.placeholder = placeholder;
+      input.spellcheck = false;
+      const btns = div("pl-dialog-buttons");
+      const ok = button("Install", "pl-btn primary");
+      const no = button("Cancel", "pl-btn");
+      const done = (v: string | null) => {
+        d.remove();
+        resolve(v);
+      };
+      ok.addEventListener("click", () => done(input.value.trim() || null));
+      no.addEventListener("click", () => done(null));
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") done(input.value.trim() || null);
+      });
+      btns.append(ok, no);
+      box.append(head, input, btns);
+      d.append(box);
+      translateTree(d);
+      this.el.append(d);
+      input.focus();
+    });
+  }
+
+  private yesNo(text: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      const d = div("pl-dialog");
+      const box = div("pl-dialog-box");
+      const head = div("pl-dialog-title");
+      head.textContent = text;
+      const btns = div("pl-dialog-buttons");
+      const ok = button("Replace", "pl-btn primary");
+      const no = button("Cancel", "pl-btn");
+      ok.addEventListener("click", () => (d.remove(), resolve(true)));
+      no.addEventListener("click", () => (d.remove(), resolve(false)));
+      btns.append(ok, no);
+      box.append(head, btns);
+      d.append(box);
+      translateTree(d);
+      this.el.append(d);
+      ok.focus();
+    });
+  }
+
   /** "This plugin wants to…": the user allows it or not. */
-  private confirm(name: string, perms: string[]): Promise<boolean> {
+  private confirm(name: string, perms: string[], outside = false): Promise<boolean> {
     return new Promise((resolve) => {
       const d = div("pl-dialog");
       const box = div("pl-dialog-box");
@@ -299,7 +409,9 @@ export class PluginsWindow {
         li.textContent = describePermission(p);
         ul.append(li);
       }
-      box.append(ul);
+      if (perms.length) box.append(ul);
+      else box.append(span("pl-hint", "It asks for no permissions."));
+      if (outside) box.append(span("pl-warn pl-outside", "Not from Tern's catalog: nobody has checked this plugin."));
       box.append(span("pl-hint", "Install plugins only from authors you trust."));
       const btns = div("pl-dialog-buttons");
       const ok = button("Allow", "pl-btn primary");
@@ -340,4 +452,29 @@ function button(en: string, cls: string) {
   b.dataset.i18n = en;
   b.textContent = en;
   return b;
+}
+
+/**
+ * Where to download a plugin from a link people paste:
+ *   https://github.com/owner/repo                        → the default branch, plugin at the root
+ *   https://github.com/owner/repo/tree/branch/some/path  → that branch, plugin in some/path
+ *   https://example.com/plugin.zip                       → that zip
+ */
+export function parseLink(url: string): { id: string; zip: string; subdir: string | null } | null {
+  const safeId = (s: string) =>
+    s.toLowerCase().replace(/^tern-?plugin-?|-?tern-?plugin$/g, "").replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64) || "plugin";
+  const gh = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+?)(?:\.git)?(?:\/tree\/([^/]+)(?:\/(.+?))?)?\/?$/.exec(url);
+  if (gh) {
+    const [, owner, repo, branch, path] = gh;
+    const zip = branch
+      ? `https://github.com/${owner}/${repo}/archive/refs/heads/${branch}.zip`
+      : `https://github.com/${owner}/${repo}/archive/HEAD.zip`;
+    const sub = path ? decodeURIComponent(path).replace(/\/+$/, "") : null;
+    return { id: safeId(sub ? sub.split("/").pop()! : repo), zip, subdir: sub };
+  }
+  if (/^https:\/\/\S+\.zip(\?\S*)?$/i.test(url)) {
+    const name = decodeURIComponent(url.split("?")[0].split("/").pop()!).replace(/\.zip$/i, "");
+    return { id: safeId(name), zip: url, subdir: null };
+  }
+  return null;
 }

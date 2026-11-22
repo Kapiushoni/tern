@@ -80,6 +80,7 @@ pub fn run() {
             plugins::plugin_data_save,
             plugins::plugin_catalog,
             plugins::plugin_install,
+            plugins::plugin_install_dir,
             plugins::plugin_fs_read,
             plugins::plugin_fs_write,
             plugins::plugin_fs_list,

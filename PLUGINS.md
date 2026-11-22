@@ -141,7 +141,8 @@ Voice input works in your window with no code: when someone presses Alt+Z while 
 your window has the focus, the recognised text is typed into it (an `input` event fires, as if
 typed). Tern's voice and Esc keys keep working while your window has the focus.
 
-See [`plugins/todo`](plugins/todo) for a complete example.
+See [`plugins/todo`](plugins/todo) for a complete example, and [`plugins/git`](plugins/git) for a
+window that talks to background code.
 
 ## Background code (Deno)
 
@@ -246,6 +247,19 @@ Interface colours are Tern's CSS variables without `--`: `bg`, `panel`, `line`, 
 `terminalLight` take xterm's palette names: `background`, `foreground`, `cursor`, `black`, `red`,
 `green`, `yellow`, `blue`, `magenta`, `cyan`, `white` and their `bright…` versions. The user's own
 colours in settings.json still win over a theme. See [`plugins/matrix-theme`](plugins/matrix-theme).
+
+## Sharing without the catalog
+
+People can install your plugin straight from a link: **Settings → Plugins → Manage… → Install
+from link…** takes
+
+- a repository: `https://github.com/you/my-plugin` (the plugin at its root),
+- a folder in one: `https://github.com/you/plugins/tree/main/my-plugin`,
+- or any `https://…/my-plugin.zip`.
+
+**Install from folder…** takes a folder on the computer (handy while writing one). Either way,
+Tern shows what the plugin asks for, with a warning that it isn't from the catalog; saying no
+removes it again.
 
 ## Publishing in the catalog
 

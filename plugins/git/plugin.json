@@ -1,0 +1,8 @@
+{
+  "name": "Git panel",
+  "version": "1.0.0",
+  "description": "Branch and changes in the status bar; a window with changed files, diffs, commit and history; file history from the tree.",
+  "author": "Tern",
+  "backend": "backend.js",
+  "permissions": ["commands"]
+}

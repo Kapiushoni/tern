@@ -287,6 +287,16 @@ export const RU: Record<string, string> = {
   "{name}: the language server didn't start: {error}": "{name}: языковой сервер не запустился: {error}",
   "{name}: starting {server} (the first time it is downloaded)…": "{name}: запускаю {server} (в первый раз он скачивается)…",
   "A language server stopped; it restarts when you open a file again": "Языковой сервер остановился; он запустится снова, когда вы откроете файл",
+  "Install from link…": "Установить по ссылке…",
+  "Install from folder…": "Установить из папки…",
+  "Plugin link": "Ссылка на плагин",
+  "That isn't a GitHub link or a .zip address": "Это не ссылка на GitHub и не адрес .zip",
+  "{name} is already installed. Replace it?": "{name} уже установлен. Заменить?",
+  "Downloading {name}…": "Скачиваю {name}…",
+  "The plugin's folder (with plugin.json)": "Папка плагина (с plugin.json)",
+  "It asks for no permissions.": "Он не просит никаких разрешений.",
+  "Not from Tern's catalog: nobody has checked this plugin.": "Не из каталога Tern: этот плагин никто не проверял.",
+  "Replace": "Заменить",
 };
 
 export const UK: Record<string, string> = {
@@ -560,4 +570,14 @@ export const UK: Record<string, string> = {
   "{name}: the language server didn't start: {error}": "{name}: мовний сервер не запустився: {error}",
   "{name}: starting {server} (the first time it is downloaded)…": "{name}: запускаю {server} (першого разу він завантажується)…",
   "A language server stopped; it restarts when you open a file again": "Мовний сервер зупинився; він запуститься знову, коли ви відкриєте файл",
+  "Install from link…": "Встановити за посиланням…",
+  "Install from folder…": "Встановити з папки…",
+  "Plugin link": "Посилання на плагін",
+  "That isn't a GitHub link or a .zip address": "Це не посилання на GitHub і не адреса .zip",
+  "{name} is already installed. Replace it?": "{name} вже встановлено. Замінити?",
+  "Downloading {name}…": "Завантажую {name}…",
+  "The plugin's folder (with plugin.json)": "Папка плагіна (з plugin.json)",
+  "It asks for no permissions.": "Він не просить жодних дозволів.",
+  "Not from Tern's catalog: nobody has checked this plugin.": "Не з каталогу Tern: цей плагін ніхто не перевіряв.",
+  "Replace": "Замінити",
 };
