@@ -508,6 +508,14 @@ export class Tabs {
     }));
   }
 
+  /** Switches to a tab by id; false if it is gone. */
+  show(id: string) {
+    const tab = this.tabs.find((t) => t.key === id);
+    if (!tab) return false;
+    this.activate(tab);
+    return true;
+  }
+
   /** A tab's terminal: the given one, or the active one. */
   sessionOf(id?: string | null) {
     const tab = id ? this.tabs.find((t) => t.key === id) : this.active;

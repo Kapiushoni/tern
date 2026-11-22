@@ -82,9 +82,22 @@ export class ProjectTools {
     }
   }
 
+  /** The ▶ tab of each folder: running again reuses it instead of opening another. */
+  private runTabs = new Map<string, string>();
+
   private async start(info: RunInfo) {
     if (info.command) {
-      await this.tabs.open("shell", info.dir, { run: info.command, label: `▶ ${baseName(info.dir)}` });
+      const key = info.dir.toLowerCase();
+      const tab = this.runTabs.get(key);
+      if (tab && this.tabs.show(tab)) {
+        // Stop what is still running there (Ctrl+C), then start again.
+        const s = this.tabs.sessionOf(tab);
+        s.send("\x03");
+        setTimeout(() => s.send(info.command + "\r"), 150);
+        s.focus();
+        return;
+      }
+      this.runTabs.set(key, await this.tabs.open("shell", info.dir, { run: info.command, label: `▶ ${baseName(info.dir)}` }));
     } else if (info.preview) {
       this.openPreview(info.preview);
     }
