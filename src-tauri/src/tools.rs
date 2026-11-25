@@ -103,6 +103,38 @@ pub async fn ide_open(id: String, path: String) -> Result<(), String> {
     cmd.spawn().map(|_| ()).map_err(|e| e.to_string())
 }
 
+/// Opens a web link (from the terminal or Claude's answers) in the default browser.
+/// Only http(s) and mailto: anything else could start a program.
+#[tauri::command]
+pub fn open_url(url: String) -> Result<(), String> {
+    let lower = url.to_ascii_lowercase();
+    let ok_scheme = lower.starts_with("http://") || lower.starts_with("https://") || lower.starts_with("mailto:");
+    if !ok_scheme || url.len() > 8192 || url.chars().any(|c| c.is_whitespace() || c.is_control() || c == '"') {
+        return Err("bad-url".into());
+    }
+    #[cfg(windows)]
+    let mut cmd = {
+        use std::os::windows::process::CommandExt;
+        let mut c = Command::new("rundll32");
+        c.arg("url.dll,FileProtocolHandler").arg(&url);
+        c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        c
+    };
+    #[cfg(target_os = "macos")]
+    let mut cmd = {
+        let mut c = Command::new("open");
+        c.arg(&url);
+        c
+    };
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut cmd = {
+        let mut c = Command::new("xdg-open");
+        c.arg(&url);
+        c
+    };
+    cmd.spawn().map(|_| ()).map_err(|e| e.to_string())
+}
+
 // ── run ▶ ────────────────────────────────────────────────
 
 #[derive(Serialize, Default)]

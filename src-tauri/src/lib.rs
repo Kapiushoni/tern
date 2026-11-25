@@ -94,6 +94,7 @@ pub fn run() {
             lsp::lsp_stop,
             tools::ide_list,
             tools::ide_open,
+            tools::open_url,
             tools::run_detect,
             tools::run_candidates,
             tools::run_save,

@@ -1116,6 +1116,7 @@ body.resizing-y, body.resizing-y * { cursor: row-resize !important; }
 /* ── file type icons in the tree (Material Icon Theme) ── */
 .ficon { flex: none; width: 16px; height: 16px; margin-left: -2px; }
 .node.hidden-entry .ficon { opacity: 0.45; }
+.node.cut-entry .name, .node.cut-entry .ficon, .node.cut-entry .twisty { opacity: 0.45; }
 /* Every button in the tab row sits on the same centre line as the window buttons. */
 #tabbar > .icon-btn { align-self: center; flex: none; }
 #btn-run, #btn-settings { margin: 0 1px; }
@@ -1459,3 +1460,88 @@ body.menu-hover .xterm, body.menu-hover .xterm * { cursor: pointer !important; }
 #btn-sidebar { align-self: center; flex: none; margin: 0 2px 0 6px; }
 #btn-sidebar[aria-pressed="false"] { color: var(--dim); }
 #btn-sidebar[aria-pressed="true"] { color: var(--fg2); }
+
+/* ── the editor's find / replace bar (Ctrl+F, Ctrl+H) ── */
+.tf-panel {
+  display: flex; align-items: flex-start; gap: 4px;
+  padding: 6px 8px 6px 4px;
+  background: var(--panel);
+  font: 12px var(--mono);
+  color: var(--fg);
+}
+.tf-rows { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.tf-row { display: flex; align-items: center; gap: 4px; }
+.tf-replace { display: none; }
+.tf-panel.tf-open:not(.tf-readonly) .tf-replace { display: flex; }
+.tf-field {
+  flex: 1; min-width: 0; max-width: 420px;
+  display: flex; align-items: center; gap: 2px;
+  padding: 0 3px 0 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  transition: border-color 0.12s;
+}
+.tf-field:focus-within { border-color: var(--accent); }
+.tf-field input {
+  flex: 1; min-width: 0;
+  padding: 4px 8px;
+  border: none; outline: none;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+}
+.tf-field input::placeholder { color: var(--faint); }
+.tf-field input.tf-bad { color: var(--git-conflict); }
+.tf-opt {
+  flex: none;
+  height: 18px; min-width: 22px;
+  padding: 0 3px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: none;
+  color: var(--dim);
+  font: 11px var(--mono);
+  cursor: pointer;
+}
+.tf-opt:hover { color: var(--fg); background: var(--hover); }
+.tf-opt.tf-word { text-decoration: underline; text-underline-offset: 2px; }
+.tf-opt[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.tf-count {
+  flex: none; min-width: 7em;
+  padding: 0 4px;
+  color: var(--dim); font-size: 11px;
+  white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.tf-btn, .tf-fold {
+  flex: none;
+  display: grid; place-items: center;
+  width: 24px; height: 24px; padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  color: var(--fg2);
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s, border-color 0.12s;
+}
+.tf-btn svg, .tf-fold svg {
+  width: 14px; height: 14px;
+  fill: none; stroke: currentColor; stroke-width: 1.8;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+.tf-btn:hover, .tf-fold:hover { color: var(--fg); background: var(--hover); border-color: var(--line); }
+.tf-fold svg { transition: transform 0.12s; }
+.tf-panel.tf-open .tf-fold svg { transform: rotate(90deg); }
+.tf-panel.tf-readonly .tf-fold { visibility: hidden; }
+.tf-text {
+  flex: none;
+  height: 24px; padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: none;
+  color: var(--fg2);
+  font: 11px var(--mono);
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+.tf-text:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }

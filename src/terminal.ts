@@ -3,6 +3,8 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
+import { toast } from "./toast";
+import { t } from "./i18n";
 
 export type TermKind = "claude" | "shell";
 
@@ -115,6 +117,8 @@ export class TermSession {
       scrollback: look.scrollback,
       allowProposedApi: true,
       theme,
+      // OSC 8 links (Claude Code prints these): open in the browser, without xterm's confirm().
+      linkHandler: { activate: (_e, uri) => openUrl(uri), allowNonHttpProtocols: true },
     });
     this.term.loadAddon(this.fit);
     this.steadyMouse();
@@ -130,7 +134,11 @@ export class TermSession {
       const bytes = Array.from(data, (c) => c.charCodeAt(0) & 0xff);
       invoke("pty_write_bytes", { id: this.id, data: bytes }).catch(() => {});
     });
-    this.term.attachCustomKeyEventHandler((e) => this.onKey(e));
+    this.term.attachCustomKeyEventHandler((e) => {
+      if (this.copyKey(e)) return false;
+      return this.onKey(e);
+    });
+    this.term.registerLinkProvider({ provideLinks: (y, done) => done(urlLinks(this.term, y)) });
     this.term.registerLinkProvider({ provideLinks: (y, done) => done(pluginLinks(this.term, y)) });
 
     this.observer = new ResizeObserver(() => {
@@ -276,6 +284,28 @@ export class TermSession {
     return out.join("\n");
   }
 
+  /**
+   * Copying, as in Windows Terminal: Ctrl+C copies the selection when there is one (and only then;
+   * with nothing selected it stays ^C, the interrupt), Ctrl+Shift+C and Ctrl+Insert always copy.
+   * Returns whether the key was taken.
+   */
+  private copyKey(e: KeyboardEvent): boolean {
+    if (!e.ctrlKey || e.altKey || e.metaKey) return false;
+    const plain = e.code === "KeyC" && !e.shiftKey;
+    const always = (e.code === "KeyC" && e.shiftKey) || (e.code === "Insert" && !e.shiftKey);
+    if (!plain && !always) return false;
+    if (plain && !this.term.hasSelection()) return false;
+    if (e.type !== "keydown") return true;
+    e.preventDefault();
+    const text = this.term.getSelection();
+    if (!text) return true;
+    navigator.clipboard.writeText(text).then(
+      () => this.term.clearSelection(),
+      () => toast(t("Could not copy")),
+    );
+    return true;
+  }
+
   /** Pastes text as if from the clipboard (bracketed when the program asked for it). */
   paste(text: string) {
     this.term.paste(text);
@@ -291,6 +321,70 @@ export class TermSession {
     if (this.id !== null) invoke("pty_kill", { id: this.id });
     this.term.dispose();
   }
+}
+
+/** Opens a web link in the default browser. */
+export function openUrl(url: string) {
+  if (!/^(https?:\/\/|mailto:)/i.test(url)) return;
+  invoke("open_url", { url }).catch(() => toast(t("Could not open the link")));
+}
+
+const URL_RE = /\b(?:https?:\/\/|mailto:)[^\s<>"'`]+/gi;
+
+/** Drops what usually ends a sentence rather than the link: "see https://x.com/a)." → "…/a". */
+function trimUrl(u: string) {
+  for (;;) {
+    const last = u[u.length - 1];
+    if (/[.,;:!?'"]/.test(last)) u = u.slice(0, -1);
+    else if (last === ")" && (u.match(/\(/g)?.length ?? 0) < (u.match(/\)/g)?.length ?? 0)) u = u.slice(0, -1);
+    else if (last === "]" && !u.includes("[")) u = u.slice(0, -1);
+    else if (last === "}" && !u.includes("{")) u = u.slice(0, -1);
+    else return u;
+  }
+}
+
+/**
+ * Plain web addresses become links. A long address the terminal wrapped onto several rows is
+ * read as one: the rows of the whole logical line are joined first.
+ */
+function urlLinks(term: Terminal, y: number) {
+  const buf = term.buffer.active;
+  let first = y - 1;
+  while (first > 0 && buf.getLine(first)?.isWrapped && y - 1 - first < 40) first--;
+  let last = y - 1;
+  while (buf.getLine(last + 1)?.isWrapped && last - first < 80) last++;
+  // The text, and for each of its characters the cell it sits in (wide characters take two).
+  let text = "";
+  const at: { x: number; y: number }[] = [];
+  const cell = buf.getNullCell();
+  for (let r = first; r <= last; r++) {
+    const line = buf.getLine(r);
+    if (!line) break;
+    for (let x = 0; x < line.length; x++) {
+      line.getCell(x, cell);
+      if (cell.getWidth() === 0) continue;
+      const ch = cell.getChars() || " ";
+      for (let i = 0; i < ch.length; i++) at.push({ x: x + 1, y: r + 1 });
+      text += ch;
+    }
+  }
+  if (!text.includes(":") || text.length > 20000) return undefined;
+  const links = [];
+  URL_RE.lastIndex = 0;
+  for (let m = URL_RE.exec(text); m; m = URL_RE.exec(text)) {
+    const url = trimUrl(m[0]);
+    if (url.length < 10) continue;
+    const start = at[m.index];
+    const end = at[m.index + url.length - 1];
+    if (end.y < y || start.y > y) continue; // not on the row asked about
+    links.push({
+      range: { start, end },
+      text: url,
+      activate: () => openUrl(url),
+      decorations: { underline: true, pointerCursor: true },
+    });
+  }
+  return links.length ? links : undefined;
 }
 
 /**

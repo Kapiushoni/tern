@@ -51,6 +51,10 @@ export class FileTree {
   private git = new Map<string, GitState>();
   private refreshTimer = 0;
   private menu: HTMLElement;
+  /** Files and folders taken with "Copy" (Ctrl+C) or "Cut" (Ctrl+X), waiting for "Paste" (Ctrl+V). */
+  private clipboard: string[] = [];
+  /** The clipboard was cut: pasting moves the items instead of copying them. */
+  private clipCut = false;
   root = "";
 
   /** The highlighted row's path, if any. */
@@ -185,6 +189,7 @@ export class FileTree {
     this.el.replaceChildren(...frag.childNodes);
     this.el.scrollTop = scroll;
     this.paintSelection();
+    this.paintCut();
   }
 
   /** `faint`: the folder itself is hidden, so everything in it is shown as hidden too. */
@@ -296,6 +301,21 @@ export class FileTree {
       e.preventDefault();
       return;
     }
+    if ((e.ctrlKey || e.metaKey) && e.code === "KeyC" && this.sel.size) {
+      this.copyEntries(this.selection);
+      e.preventDefault();
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.code === "KeyX" && this.sel.size) {
+      this.copyEntries(this.selection, true);
+      e.preventDefault();
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.code === "KeyV" && this.clipboard.length) {
+      this.paste(this.targetDir());
+      e.preventDefault();
+      return;
+    }
     const row = this.selectedPath ? this.rowOf(this.selectedPath) : null;
     if (e.key === "Delete" && this.sel.size) this.trashMany(this.selection);
     else if (!row) return;
@@ -350,6 +370,8 @@ export class FileTree {
         [
           { label: t("Ask Claude about {n} items", { n }), run: () => this.onAskClaude(paths) },
           null,
+          { label: t("Cut"), hint: "Ctrl+X", run: () => this.copyEntries(paths, true) },
+          { label: t("Copy"), hint: "Ctrl+C", run: () => this.copyEntries(paths) },
           { label: t("Copy paths"), run: () => this.copy(paths.join("\n")) },
           { label: t("Copy relative paths"), run: () => this.copy(paths.map((p) => this.relative(p)).join("\n")) },
           null,
@@ -373,6 +395,18 @@ export class FileTree {
       { label: t("New folder"), run: () => this.startCreate(dir, true) },
       { label: t("Add files…"), run: () => this.pickAndAdd(dir) },
     );
+    if (row) {
+      items.push(
+        { label: t("Cut"), hint: "Ctrl+X", run: () => this.copyEntries([path], true) },
+        { label: t("Copy"), hint: "Ctrl+C", run: () => this.copyEntries([path]) },
+      );
+    }
+    // Paste goes into the folder right-clicked, or the project root on empty space.
+    if (isDir && this.clipboard.length) {
+      const n = this.clipboard.length;
+      const label = n === 1 ? t("Paste {name}", { name: baseName(this.clipboard[0]) }) : t("Paste {n} items", { n });
+      items.push({ label, hint: "Ctrl+V", run: () => this.paste(dir) });
+    }
     if (row) {
       items.push(
         { label: t("Rename"), hint: "F2", run: () => this.startRename(row) },
@@ -432,6 +466,48 @@ export class FileTree {
       () => toast(t("Copied: {text}", { text })),
       () => toast(t("Could not copy")),
     );
+  }
+
+  /** "Copy" / "Cut": remembers the items; "Paste" copies (or, after Cut, moves) them into a folder. */
+  private copyEntries(paths: string[], cut = false) {
+    // A folder already brings its own selected contents along.
+    this.clipboard = paths.filter((p) => !paths.some((q) => q !== p && (key(p).startsWith(key(q) + "\\") || key(p).startsWith(key(q) + "/"))));
+    this.clipCut = cut;
+    this.paintCut();
+    const n = this.clipboard.length;
+    const name = baseName(this.clipboard[0]);
+    if (cut) toast(n === 1 ? t("Cut {name}", { name }) : t("Cut {n} items", { n }));
+    else toast(n === 1 ? t("Copied {name}", { name }) : t("Copied {n} items", { n }));
+  }
+
+  /** Cut items are shown faded until they are pasted. */
+  private paintCut() {
+    const cut = new Set(this.clipCut ? this.clipboard.map(key) : []);
+    for (const r of this.el.querySelectorAll<HTMLElement>(".node[data-path]")) r.classList.toggle("cut-entry", cut.has(key(r.dataset.path!)));
+  }
+
+  /** The folder Ctrl+V pastes into: the selected folder, the selected file's folder, or the root. */
+  private targetDir(): string {
+    const row = this.selectedPath ? this.rowOf(this.selectedPath) : null;
+    if (!row) return this.root;
+    return row.classList.contains("dir") ? row.dataset.path! : parentOf(row.dataset.path!);
+  }
+
+  private async paste(dir: string) {
+    if (!this.clipboard.length) return;
+    if (!this.clipCut) return this.addFiles(this.clipboard, dir);
+    // Cut: move each item (skipping a folder pasted into itself); the clipboard empties after.
+    const paths = this.clipboard;
+    this.clipboard = [];
+    this.clipCut = false;
+    this.paintCut();
+    for (const p of paths) {
+      if (key(dir) === key(p) || key(dir).startsWith(key(p) + "\\") || key(dir).startsWith(key(p) + "/")) {
+        toast(explain("into-itself"));
+        continue;
+      }
+      await this.move(p, dir);
+    }
   }
 
   // ── create / rename / delete / move ───────────────────

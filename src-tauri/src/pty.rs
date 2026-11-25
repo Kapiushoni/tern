@@ -109,6 +109,9 @@ pub fn pty_spawn(
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("TERM_PROGRAM", "tern");
+    // Tern opens OSC 8 links: tools that check (Claude Code among them) then print clickable
+    // links, which stay whole even when the text is wrapped onto several lines.
+    cmd.env("FORCE_HYPERLINK", "1");
     for var in PARENT_SESSION_VARS {
         cmd.env_remove(var);
     }

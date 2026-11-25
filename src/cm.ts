@@ -11,6 +11,7 @@ import {
   syntaxHighlighting, HighlightStyle, indentOnInput, bracketMatching, StreamLanguage,
 } from "@codemirror/language";
 import { tags as t } from "@lezer/highlight";
+import { createFindPanel, openReplace } from "./findpanel";
 
 type Loader = () => Promise<Extension>;
 const legacy = (load: () => Promise<Parameters<typeof StreamLanguage.define>[0]>): Loader => async () =>
@@ -113,6 +114,7 @@ const theme = EditorView.theme({
   ".cm-searchMatch.cm-searchMatch-selected": { backgroundColor: "var(--accent-soft)" },
   ".cm-panels": { backgroundColor: "var(--panel)", color: "var(--fg)" },
   ".cm-panels.cm-panels-top": { borderBottom: "1px solid var(--line)" },
+  ".cm-panel.tf-panel": { padding: "0" },
   // Completion, hover docs and errors from language servers.
   ".cm-tooltip": { backgroundColor: "var(--panel)", color: "var(--fg)", border: "1px solid var(--line)", borderRadius: "4px" },
   ".cm-tooltip-autocomplete > ul": { fontFamily: "var(--mono)", maxHeight: "16em" },
@@ -166,12 +168,13 @@ export async function createEditor(
       bracketMatching(),
       highlightActiveLine(),
       highlightSelectionMatches(),
-      search({ top: true }),
+      search({ top: true, createPanel: createFindPanel }),
       syntaxHighlighting(highlight),
       theme,
       readOnly.of(EditorState.readOnly.of(false)),
       keymap.of([
         { key: "Mod-s", preventDefault: true, run: () => (on.save(), true) },
+        { key: "Mod-h", preventDefault: true, run: openReplace, scope: "editor search-panel" },
         ...defaultKeymap,
         ...historyKeymap,
         ...searchKeymap,
